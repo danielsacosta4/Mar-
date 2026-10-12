@@ -72,6 +72,10 @@ so every patch is in place before the first render (offline, the ping fails fast
   ~40 s before the end, then either schedules a precise gapless switch (`advance(i, 0)`) or starts an equal-power
   crossfade. "Keep albums gapless" disables the fade between songs of the same album. If preloading isn't ready,
   the `ended` event falls back to `load()`, which reuses the preloaded element when it matches.
+  Converted streams (Streaming quality ≠ Original) can't be seeked by byte range, so `setSrc` starts them at a position
+  with Subsonic `timeOffset` and keeps it in `el._offset`; always use `Player.pos()` / `dur()` / `seek()` rather than
+  `audio.currentTime` / `duration`. `transcodes(song)` is false for downloads and for MP3s Navidrome passes through (it
+  ignores timeOffset then). `setQuality()` applies a new quality to the playing song at the same position.
   Volume = user volume × ReplayGain (track/album/auto, peak-limited, never above 1) × fade factor.
   iOS/iPadOS can't set element volume (`Player.volLocked`), so crossfade and levelling are disabled there.
 - **Scrobbling**: `scrobble` (now playing + submission after half the song or 4 min of real listening).
@@ -98,7 +102,11 @@ so every patch is in place before the first render (offline, the ping fails fast
   "Volume tags" = `replayGain.trackGain/albumGain` present. No "source" line: Navidrome can't know where files came from.
 - **Ratings (1.4)**: 1–5 stars via Subsonic `setRating` (0 clears; tapping the current rating clears it) for songs and
   albums, stored in Navidrome. Stars on the album page, at the top of the song menu, in Now Playing, and keys 1–5/0 for
-  the playing song; rated songs show ★ in track rows. Home "Top Rated" row = `getAlbumList2 type=highest` (rated only);
+  the playing song; rated songs show ★ in track rows. The player bar shows the playing song's stars and a quality label
+  ("FLAC 24/96", or "MP3 320 · from FLAC 24/96") that opens the quality picker (`Quality.pick`).
+- **Context menus (1.4.1)**: right-click (or long-press on touch) on songs, queue items, the player bar, chart rows,
+  and album/artist/playlist cards opens the same menus as the "…" buttons at the pointer (`contextMenuFor` in
+  collection.js); cards use `CardMenus`. Home "Top Rated" row = `getAlbumList2 type=highest` (rated only);
   "Play your 5-star songs" (`mix-top`) uses the catalog's rated songs (5★, or 4★+ when fewer than 10).
 - **Lyrics**: OpenSubsonic `getLyricsBySongId` (synced first), fallback `getLyrics`.
 - **Downloads** (`extras.js` + `sw.js`): songs fetched and stored in Cache Storage under `/offline/song/<id>`,
@@ -140,6 +148,9 @@ uses `LANG=C.UTF-8` to avoid locale noise.
   missing volume tags, resolution chart, filters). Star ratings (songs + albums) with Top Rated row, 5-star mix,
   "Top Rated" album sort, rating from Now Playing and keys 1–5. Fix: downloaded albums now open offline on first
   load and when the server is unreachable but the device is online.
+- **1.4.1**: player bar: stars for the playing song, quality label + picker (applies to the playing song at the same
+  point), fixed-width volume. Right-click / long-press menus everywhere. Seeking while converting no longer restarts the
+  song (timeOffset).
 
 ## Roadmap (agreed with the owner; each needs a plan + go-ahead first)
 

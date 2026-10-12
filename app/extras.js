@@ -72,18 +72,33 @@ function albumQuality(songs) {
   return null;
 }
 
+// What you're hearing, in the player bar and Now Playing: "FLAC 24/96", or "MP3 320 · from FLAC 24/96" when converting.
+const fileLabel = (s) => {
+  const fmt = String(s.suffix || '').toUpperCase();
+  if (s.bitDepth && s.samplingRate) return `${fmt} ${s.bitDepth}/${+(s.samplingRate / 1000).toFixed(1)}`;
+  return s.bitRate ? `${fmt} ${s.bitRate}` : fmt;
+};
 const Quality = {
   sync(s) {
-    const el = $('.np-quality');
-    if (!el) return;
     const q = qualityOf(s);
     const kbps = QUALITY[Prefs.get('quality')];
+    const conv = !!s && Player.transcodes(s);
     const offline = s && Offline.hasSong(s.id);
-    if (!q) { el.hidden = true; return; }
-    el.hidden = false;
-    el.className = `np-quality qbadge ${kbps && !offline ? 'lossy' : q.cls}`;
-    el.innerHTML = kbps && !offline ? esc(`MP3 ${kbps}`) : badgeInner(q);
-    el.title = kbps && !offline ? `Streaming as MP3 ${kbps} kbps (original: ${q.detail})` : q.detail;
+    $$('.np-quality, .p-quality').forEach((el) => {
+      if (!q) { el.hidden = true; return; }
+      el.hidden = false;
+      const base = el.classList.contains('np-quality') ? 'np-quality' : 'p-quality';
+      el.className = `${base} qbadge ${conv ? 'lossy conv' : q.cls}`;
+      el.innerHTML = conv ? esc(`MP3 ${kbps} · from ${fileLabel(s)}`) : `${badgeInner({ ...q, label: fileLabel(s) })}${offline ? ' · downloaded' : ''}`;
+      el.title = conv ? `Converted to MP3 ${kbps} kbps from the original (${q.detail}). Click to change.` : `${q.detail}. Click to change the streaming quality.`;
+    });
+  },
+  // Quick picker; changing it applies to the song that's playing straight away.
+  pick(anchor) {
+    const cur = Prefs.get('quality');
+    const s = Player.current();
+    const opts = [['original', `Original${s ? ` (${fileLabel(s)})` : ''}`], ['high', 'MP3 320 kbps'], ['normal', 'MP3 192 kbps'], ['low', 'MP3 128 kbps (data saver)']];
+    Menu.open(anchor, opts.map(([k, l]) => ({ key: 'q-' + k, label: `${k === cur ? '✓ ' : '\u2003 '}${l}`, run: () => { Player.setQuality(k); toast(k === 'original' ? 'Playing the original files' : `Streaming as ${l}`); } })));
   },
 };
 
@@ -570,7 +585,7 @@ songMenu = function (anchor, s) {
       Prefs.set(k, v);
       if (k === 'crossfade') el.nextElementSibling.textContent = v ? `${v} s` : 'Off';
       if (k === 'rg') Player.applyVolume();
-      if (k === 'quality') Quality.sync(Player.current());
+      if (k === 'quality') Player.setQuality(v);
     });
   };
 })();
@@ -610,7 +625,7 @@ View.artists = async (main) => {
 /* ================= Actions ================= */
 
 Object.assign(actions, {
-  'quality-info': () => { const s = Player.current(); const q = qualityOf(s); if (q) toast(q.detail); },
+  'quality-info': (el) => Quality.pick(el),
   'pl-new': async () => {
     let created;
     const name = await Sheet.open({ title: 'New Playlist', input: { label: 'Name', placeholder: 'My playlist' }, ok: 'Create', onOk: async (v) => { created = await Playlists.create(v); } });

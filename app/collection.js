@@ -173,17 +173,22 @@ const Rating = {
       const s = Songs.get(id);
       if (s) { s.userRating = n || undefined; Catalog.setRating(s, n); }
       $$(`.track[data-song="${CSS.escape(id)}"] .t-rating`).forEach((el) => { el.textContent = Rating.text(n); });
-      if (Player.current()?.id === id) Rating.syncNP();
     }
     $$(`.stars[data-kind="${kind}"][data-id="${CSS.escape(id)}"]`).forEach((el) => { el.outerHTML = Rating.stars(n, `data-kind="${kind}" data-id="${esc(id)}"`); });
+    if (kind === 'song' && Player.current()?.id === id) Rating.syncNP();
     toast(n ? `Rated ${'★'.repeat(n)}` : 'Rating removed');
   },
 
+  // Stars for the playing song: under the title in Now Playing and in the player bar.
   syncNP() {
     const s = Player.current();
-    let box = $('.np-rate');
-    if (!box) { $('.np-text')?.insertAdjacentHTML('beforeend', '<div class="np-rate"></div>'); box = $('.np-rate'); }
-    if (box) box.innerHTML = s ? Rating.stars(s.userRating || 0, `data-kind="song" data-id="${esc(s.id)}"`) : '';
+    if (!$('.np-rate')) $('.np-text')?.insertAdjacentHTML('beforeend', '<div class="np-rate"></div>');
+    const key = s ? `${s.id}:${s.userRating || 0}` : '';
+    $$('.np-rate, .p-rate').forEach((box) => {
+      if (box.dataset.key === key) return;
+      box.dataset.key = key;
+      box.innerHTML = s ? Rating.stars(s.userRating || 0, `data-kind="song" data-id="${esc(s.id)}"`) : '';
+    });
   },
 };
 
@@ -228,6 +233,117 @@ document.addEventListener('keydown', (e) => {
   if (!s || !/^[0-5]$/.test(e.key)) return;
   run(() => Rating.set('song', s.id, +e.key));
 });
+
+/* ================= Right-click (and long-press) menus ================= */
+// The same menus as the "…" buttons, opened where you clicked. Albums, artists and playlists get their own.
+
+function menuAt(x, y) {
+  const m = $('#menu');
+  if (m.hidden) return;
+  const w = m.offsetWidth, h = m.offsetHeight;
+  m.style.left = Math.max(8, Math.min(x, innerWidth - w - 8)) + 'px';
+  m.style.top = Math.max(8, Math.min(y, innerHeight - h - 8)) + 'px';
+}
+const starsRow = (kind, id, n) => `<div class="menu-stars">${Rating.stars(n, `data-kind="${kind}" data-id="${esc(id)}"`)}</div><hr>`;
+
+const CardMenus = {
+  async album(el, id) {
+    const songs = () => albumSongs(id).then((x) => x.songs);
+    Menu.open(el, [
+      { key: 'play', label: 'Play', icon: 'play', run: async () => Player.playList(await songs(), 0, { shuffle: false }) },
+      { key: 'shuffle', label: 'Shuffle', icon: 'shuffle', run: async () => Player.playList(await songs(), 0, { shuffle: true }) },
+      '-',
+      { key: 'next', label: 'Play Next', icon: 'playNext', run: async () => { Player.playNext(await songs()); toast('Album plays next'); } },
+      { key: 'queue', label: 'Add to Queue', icon: 'addQueue', run: async () => { Player.addToQueue(await songs()); toast('Album added to queue'); } },
+      { key: 'radio', label: 'Start Radio', icon: 'radio', run: async () => window.Radio.start('album', (await albumSongs(id)).album) },
+      { key: 'addpl', label: 'Add to Playlist…', icon: 'playlist', run: async () => Playlists.addTo(await songs()) },
+      '-',
+      { key: 'dl', label: Offline.has('album:' + id) ? 'Downloaded' : 'Download', icon: 'download', run: () => Offline.has('album:' + id) ? toast('Already downloaded') : Offline.download('album', id) },
+      { key: 'open', label: 'Go to Album', icon: 'album', run: () => { location.hash = '#/album/' + id; } },
+    ]);
+    $('#menu').insertAdjacentHTML('afterbegin', starsRow('album', id, 0));
+    // The card doesn't know the rating; fill it in when the album answers.
+    const a = await albumSongs(id).then((x) => x.album).catch(() => null);
+    const box = $('#menu .menu-stars');
+    if (a && box && !$('#menu').hidden) box.innerHTML = Rating.stars(a.userRating || 0, `data-kind="album" data-id="${esc(id)}"`);
+  },
+  artist(el, id) {
+    Menu.open(el, [
+      { key: 'shuffle', label: 'Shuffle', icon: 'shuffle', run: () => actions['play-artist']({ dataset: { id } }) },
+      { key: 'radio', label: 'Start Radio', icon: 'radio', run: () => actions['radio-artist']({ dataset: { id } }) },
+      { key: 'open', label: 'Go to Artist', icon: 'artist', run: () => { location.hash = '#/artist/' + id; } },
+    ]);
+  },
+  playlist(el, id) {
+    Menu.open(el, [
+      { key: 'play', label: 'Play', icon: 'play', run: () => actions['play-playlist']({ dataset: { id } }) },
+      { key: 'shuffle', label: 'Shuffle', icon: 'shuffle', run: () => actions['shuffle-playlist']({ dataset: { id } }) },
+      { key: 'queue', label: 'Add to Queue', icon: 'addQueue', run: async () => { Player.addToQueue(await playlistSongs(id)); toast('Playlist added to queue'); } },
+      { key: 'dl', label: Offline.has('playlist:' + id) ? 'Downloaded' : 'Download', icon: 'download', run: () => Offline.has('playlist:' + id) ? toast('Already downloaded') : Offline.download('playlist', id) },
+      { key: 'open', label: 'Open Playlist', icon: 'playlist', run: () => { location.hash = '#/playlist/' + id; } },
+    ]);
+  },
+};
+
+// Returns true when it opened a menu for what's under the pointer.
+function contextMenuFor(target, x, y) {
+  let el;
+  if ((el = target.closest('.track'))) {
+    const more = $('.t-more', el);
+    if (!more) return false;
+    actions['menu-song'](more);
+  } else if ((el = target.closest('.q-item'))) {
+    const s = Player.queue[+el.dataset.i];
+    if (!s) return false;
+    songMenu(el, s);
+  } else if ((el = target.closest('.p-now, .np-meta'))) {
+    if (!Player.current()) return false;
+    actions['menu-current'](el);
+  } else if ((el = target.closest('.chart-row[data-song]'))) {
+    const s = Songs.get(el.dataset.song);
+    if (!s) return false;
+    songMenu(el, s);
+  } else if ((el = target.closest('a[href^="#/album/"]:is(.card, .chart-row, .art, .top-result)'))) {
+    CardMenus.album(el, decodeURIComponent(el.getAttribute('href').split('/')[2]));
+  } else if ((el = target.closest('a.card[href^="#/artist/"]'))) {
+    CardMenus.artist(el, decodeURIComponent(el.getAttribute('href').split('/')[2]));
+  } else if ((el = target.closest('a.card[href^="#/playlist/"]'))) {
+    CardMenus.playlist(el, decodeURIComponent(el.getAttribute('href').split('/')[2]));
+  } else return false;
+  menuAt(x, y);
+  return true;
+}
+
+document.addEventListener('contextmenu', (e) => {
+  if (e.target.closest('input, textarea, #menu')) return;
+  if (contextMenuFor(e.target, e.clientX, e.clientY)) e.preventDefault();
+});
+
+// Long-press on touch screens (iOS doesn't send contextmenu for links).
+{
+  let timer = null, start = null, fired = false;
+  document.addEventListener('touchstart', (e) => {
+    if (e.touches.length !== 1) return;
+    const t = e.touches[0];
+    start = { x: t.clientX, y: t.clientY, target: e.target };
+    fired = false;
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      if (!start) return;
+      fired = contextMenuFor(start.target, start.x, start.y);
+      if (fired && navigator.vibrate) navigator.vibrate(10);
+    }, 520);
+  }, { passive: true });
+  const cancel = () => { clearTimeout(timer); start = null; };
+  document.addEventListener('touchmove', (e) => {
+    const t = e.touches[0];
+    if (start && t && Math.hypot(t.clientX - start.x, t.clientY - start.y) > 10) cancel();
+  }, { passive: true });
+  document.addEventListener('touchend', (e) => { cancel(); if (fired) { e.preventDefault(); fired = false; } });
+  document.addEventListener('touchcancel', cancel);
+  // A long-press shouldn't also count as a tap.
+  document.addEventListener('click', (e) => { if (fired) { e.preventDefault(); e.stopPropagation(); fired = false; } }, true);
+}
 
 /* ================= Collection page ================= */
 
