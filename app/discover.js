@@ -135,6 +135,18 @@ const Match = {
     return out;
   },
 
+  // An album in the library by name + artist (ListenBrainz "releases").
+  async album(name, artist) {
+    const want = norm(name);
+    if (!want) return null;
+    const q = String(name).replace(/[([].*?[)\]]/g, ' ').replace(/[^\p{L}\p{N}' ]+/gu, ' ').replace(/\s+/g, ' ').trim();
+    const r = await API.call('search3', { query: q || name, albumCount: 20, songCount: 0, artistCount: 0 }, { cache: 30 * MIN });
+    const list = r.searchResult3?.album || [];
+    return list.find((a) => norm(a.name) === want && sameArtist(a.artist, artist))
+      || list.find((a) => norm(a.name) === want && (norm(a.artist).includes(norm(artist)) || norm(artist).includes(norm(a.artist))))
+      || null;
+  },
+
   artistsMap: null,
   async artists() {
     if (this.artistsMap) return this.artistsMap;
@@ -370,13 +382,55 @@ const Discover = {
   },
 
   async topLibrarySongs(range = 'month', want = 10) {
+    return (await this.topSongsWithPlays(range, want)).map((x) => x.song);
+  },
+  // [{ song, plays }]: your most played songs in the range that are in the library.
+  async topSongsWithPlays(range = 'month', want = 10, count = 40) {
     const user = LB.cfg().user;
     if (!user) return [];
-    const r = await LB.get(`stats/user/${encodeURIComponent(user)}/recordings`, { range, count: 40 }, { cache: 6 * HOUR });
-    const list = (r?.payload?.recordings || []).map((x) => ({ title: x.track_name, artist: x.artist_name }));
-    const matched = (await Match.many(list)).filter(Boolean);
-    const seen = new Set();
-    return matched.filter((s) => !seen.has(s.id) && seen.add(s.id)).slice(0, want);
+    const r = await LB.get(`stats/user/${encodeURIComponent(user)}/recordings`, { range, count }, { cache: range.startsWith('this_') ? 2 * HOUR : 6 * HOUR });
+    const recs = r?.payload?.recordings || [];
+    const matched = await Match.many(recs.map((x) => ({ title: x.track_name, artist: x.artist_name })));
+    const seen = new Set(), out = [];
+    matched.forEach((s, i) => { if (s && !seen.has(s.id)) { seen.add(s.id); out.push({ song: s, plays: recs[i].listen_count || 0 }); } });
+    return out.slice(0, want);
+  },
+
+  // Your week for the Home front page: album of the week, top five songs and a few totals.
+  // Tries this week first; early in the week (or before stats update) falls back to last week.
+  async weekly() {
+    const user = LB.cfg().user;
+    if (!user) return null;
+    const u = encodeURIComponent(user);
+    for (const range of ['this_week', 'week']) {
+      const cache = { cache: range === 'this_week' ? 2 * HOUR : 6 * HOUR };
+      const rel = await LB.get(`stats/user/${u}/releases`, { range, count: 10 }, cache).catch(() => null);
+      const releases = rel?.payload?.releases || [];
+      if (!releases.length) continue;
+      let album = null, albumPlays = 0;
+      for (const x of releases.slice(0, 6)) {
+        album = await Match.album(x.release_name, x.artist_name).catch(() => null);
+        if (album) { albumPlays = x.listen_count || 0; break; }
+      }
+      const [songs, arts, act] = await Promise.all([
+        this.topSongsWithPlays(range, 5, 25).catch(() => []),
+        LB.get(`stats/user/${u}/artists`, { range, count: 1 }, cache).catch(() => null),
+        LB.get(`stats/user/${u}/listening-activity`, { range }, cache).catch(() => null),
+      ]);
+      const from = rel.payload.from_ts, to = rel.payload.to_ts;
+      // Listening activity also returns the previous period for comparison; count only this one.
+      const days = (act?.payload?.listening_activity || []).filter((d) => !from || (d.from_ts >= from && d.from_ts < to));
+      const listens = days.length ? days.reduce((t, d) => t + (d.listen_count || 0), 0) : null;
+      const genres = new Map();
+      songs.forEach((x) => { if (x.song.genre) genres.set(x.song.genre, (genres.get(x.song.genre) || 0) + x.plays + 1); });
+      const genre = [...genres].sort((a, b) => b[1] - a[1])[0]?.[0] || album?.genre || '';
+      return {
+        range, from, to, album, albumPlays, songs, listens, genre,
+        artists: arts?.payload?.total_artist_count ?? null,
+        releases: rel.payload.total_release_count ?? null,
+      };
+    }
+    return null;
   },
 
   async madeForYou() {

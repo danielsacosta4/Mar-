@@ -19,7 +19,12 @@ for i,n in enumerate(names):
         s.update(suffix="flac", bitRate=2300 if i%2 else 900, bitDepth=24 if i%2 else 16, samplingRate=96000 if i%2 else 44100,
                  replayGain={"trackGain":-6.5-t*0.3,"albumGain":-7.0,"trackPeak":0.98,"albumPeak":0.99})
         tr.append(s); songs.append(s)
-    albums.append(dict(id=aid,name=n,artist=ar[1],artistId=ar[0],coverArt=aid,songCount=8,duration=sum(x["duration"] for x in tr),year=1975+i*4,genre=genres[i%5],playCount=random.randint(0,40),songs=tr,starred="2026-01-01T00:00:00Z" if i%4==0 else None))
+    albums.append(dict(id=aid,name=n,artist=ar[1],artistId=ar[0],coverArt=aid,songCount=8,duration=sum(x["duration"] for x in tr),year=1975+i*4,genre=genres[i%5],playCount=random.randint(0,40),songs=tr,starred="2026-01-01T00:00:00Z" if i%4==0 else None,
+        recordLabels=[{"name":"Valentim de Carvalho"}] if i%3==2 else None,releaseDate={"year":1975+i*4,"month":3,"day":14} if i%3==2 else None,
+        releaseTypes=[["Album","EP","Single"][i%3]],played="2026-10-09T21:00:00Z" if i%2 else None))
+# Credits on one album, as Navidrome reports them (OpenSubsonic "contributors").
+for s in albums[2]['songs']:
+    s['contributors']=[{"role":"composer","artist":{"id":"c1","name":"Amália Rodrigues"}},{"role":"performer","subRole":"portuguese guitar","artist":{"id":"c2","name":"Rui Lourenço"}},{"role":"producer","artist":{"id":"c3","name":"Pedro Lima"}}]
 def strip(a): return {k:v for k,v in a.items() if k!="songs" and v is not None}
 def ok(**kw): return {"subsonic-response":{"status":"ok","version":"1.16.1","openSubsonic":True,**kw}}
 def tone():
@@ -70,6 +75,9 @@ class H(SimpleHTTPRequestHandler):
             return s.send_json(ok(albumList2={"album":[strip(a) for a in L[off:off+size]]}))
         if m=='getAlbum':
             a=next(a for a in albums if a['id']==q['id']); d=strip(a); d['song']=a['songs']; return s.send_json(ok(album=d))
+        if m=='getAlbumInfo2':
+            if q['id']=='al2': return s.send_json(ok(albumInfo={"notes":"Recorded over four nights in a small Alfama tavern, with the windows open to the street. <a href='https://www.last.fm/music/x'>Read more on Last.fm</a>"}))
+            return s.send_json(ok(albumInfo={}))
         if m=='getArtists':
             return s.send_json(ok(artists={"index":[{"name":n[1][0],"artist":[{"id":n[0],"name":n[1],"coverArt":"ar-"+n[0][-1],"albumCount":3}]} for n in artists]}))
         if m=='getArtist':
@@ -142,7 +150,15 @@ def lb(s,u):
         tr=[lbtrack(x['title'],x['artist'],x['id']) for x in songs[::5][:12]]+[lbtrack("Song Not Owned %d"%i,"Unknown Band %d"%i) for i in range(5)]
         return s.send_json({"playlist":{"title":"Weekly Jams for modren12, week of 2026-10-06 Mon","annotation":"<p>Songs you love, plus a few <b>new</b> ones.</p>","track":tr}})
     if p.endswith('/artists'):
-        return s.send_json({"payload":{"artists":[{"artist_name":a[1],"listen_count":10} for a in artists]+[{"artist_name":"Not Here","listen_count":3}]}})
+        return s.send_json({"payload":{"total_artist_count":9,"artists":[{"artist_name":a[1],"listen_count":10} for a in artists]+[{"artist_name":"Not Here","listen_count":3}]}})
+    if p.endswith('/releases'):
+        return s.send_json({"payload":{"from_ts":1791763200,"to_ts":1792368000,"total_release_count":14,"releases":[
+            {"release_name":"Not In Library","artist_name":"Somebody","listen_count":30},
+            {"release_name":"Saudade (Remastered)","artist_name":"Marta Fado","listen_count":23},
+            {"release_name":"Neon Rivers","artist_name":"Kilo Echo","listen_count":8}]}})
+    if p.endswith('/listening-activity'):
+        return s.send_json({"payload":{"from_ts":1791763200,"to_ts":1792368000,"listening_activity":
+            [{"from_ts":1791158400+d*86400,"listen_count":5} for d in range(7)]+[{"from_ts":1791763200+d*86400,"listen_count":30+d} for d in range(7)]}})
     if p.endswith('/recordings'):
         return s.send_json({"payload":{"recordings":[{"track_name":x['title'],"artist_name":x['artist'],"listen_count":5} for x in songs[1::7][:12]]}})
     if p=='explore/lb-radio':
