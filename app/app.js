@@ -1,6 +1,6 @@
 /* Maré — a Navidrome (Subsonic / OpenSubsonic) web client. */
 'use strict';
-window.MARE_VERSION = '1.4.1';
+window.MARE_VERSION = '1.4.2';
 
 /* ================= Utilities ================= */
 
@@ -386,7 +386,24 @@ const Prefs = {
   get(k) { const p = store.get('prefs') || {}; return k in p ? p[k] : this.defaults[k]; },
   set(k, v) { const p = store.get('prefs') || {}; p[k] = v; store.set('prefs', p); },
 };
-const QUALITY = { original: null, high: 320, normal: 192, low: 128 };
+// Streaming / download qualities. Opus sounds about as good as MP3 at twice the bitrate and keeps albums gapless
+// (no encoder padding); devices that can't play it (iPhones before iOS 17) quietly get a comparable MP3 instead.
+const CAN_OPUS = (() => { try { return !!new Audio().canPlayType('audio/ogg; codecs="opus"'); } catch { return false; } })();
+const QUALITIES = {
+  original: null,
+  opus128: { format: 'opus', kbps: 128, mp3: 320 },
+  opus96: { format: 'opus', kbps: 96, mp3: 192 },
+  high: { format: 'mp3', kbps: 320 },
+  normal: { format: 'mp3', kbps: 192 },
+  low: { format: 'mp3', kbps: 128 },
+};
+// What actually gets requested for a quality key: { format, kbps } or null for the original file.
+function qualitySpec(key) {
+  const q = QUALITIES[key];
+  if (!q) return null;
+  return q.format === 'opus' && !CAN_OPUS ? { format: 'mp3', kbps: q.mp3 } : q;
+}
+const specName = (q) => `${q.format === 'opus' ? 'Opus' : 'MP3'} ${q.kbps}`;
 
 /* Two audio elements: one plays, the other preloads the next song for gapless and crossfade. */
 const Player = {
@@ -403,13 +420,14 @@ const Player = {
   // Converted streams can't be seeked by the browser (no byte ranges), so a converted song starts from a position
   // with timeOffset and the element remembers that offset (el._offset). pos()/dur() hide this from the rest.
   transcodes(song) {
-    const kbps = QUALITY[Prefs.get('quality')];
-    if (!kbps || !song || window.Offline?.hasSong?.(song.id)) return false;   // downloads play the stored copy
-    return !(String(song.suffix || '').toLowerCase() === 'mp3' && song.bitRate && song.bitRate <= kbps);   // Navidrome passes these through
+    const q = qualitySpec(Prefs.get('quality'));
+    if (!q || !song || window.Offline?.hasSong?.(song.id)) return false;   // downloads play the stored copy
+    // Navidrome passes a file through untouched when it's already in that format at or below that bitrate.
+    return !(String(song.suffix || '').toLowerCase() === q.format && song.bitRate && song.bitRate <= q.kbps);
   },
   src(song, offset = 0) {
-    const kbps = QUALITY[Prefs.get('quality')];
-    return API.stream(song.id, kbps ? { format: 'mp3', maxBitRate: kbps, ...(offset >= 1 ? { timeOffset: Math.floor(offset) } : {}) } : null);
+    const q = qualitySpec(Prefs.get('quality'));
+    return API.stream(song.id, q ? { format: q.format, maxBitRate: q.kbps, ...(offset >= 1 ? { timeOffset: Math.floor(offset) } : {}) } : null);
   },
   setSrc(el, song, offset = 0) {
     el._song = song;

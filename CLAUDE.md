@@ -76,6 +76,9 @@ so every patch is in place before the first render (offline, the ping fails fast
   with Subsonic `timeOffset` and keeps it in `el._offset`; always use `Player.pos()` / `dur()` / `seek()` rather than
   `audio.currentTime` / `duration`. `transcodes(song)` is false for downloads and for MP3s Navidrome passes through (it
   ignores timeOffset then). `setQuality()` applies a new quality to the playing song at the same position.
+  Qualities (`QUALITIES` / `qualitySpec()` in app.js): original, Opus 128 / 96 (Navidrome's `opus` transcoding; sounds
+  like MP3 at ~2× the bitrate and has no MP3 encoder gaps), MP3 320 / 192 / 128. Devices that can't play Ogg Opus
+  (`CAN_OPUS`, e.g. iOS < 17) get the paired MP3 (Opus 128 → MP3 320, Opus 96 → MP3 192). Downloads use the same specs.
   Volume = user volume × ReplayGain (track/album/auto, peak-limited, never above 1) × fade factor.
   iOS/iPadOS can't set element volume (`Player.volLocked`), so crossfade and levelling are disabled there.
 - **Scrobbling**: `scrobble` (now playing + submission after half the song or 4 min of real listening).
@@ -151,6 +154,7 @@ uses `LANG=C.UTF-8` to avoid locale noise.
 - **1.4.1**: player bar: stars for the playing song, quality label + picker (applies to the playing song at the same
   point), fixed-width volume. Right-click / long-press menus everywhere. Seeking while converting no longer restarts the
   song (timeOffset).
+- **1.4.2**: Opus 128 / 96 streaming and Opus 128 downloads, with automatic MP3 fallback on devices without Opus.
 
 ## Roadmap (agreed with the owner; each needs a plan + go-ahead first)
 
