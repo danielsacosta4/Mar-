@@ -97,8 +97,7 @@ const Quality = {
   pick(anchor) {
     const cur = Prefs.get('quality');
     const s = Player.current();
-    const opus = CAN_OPUS ? '' : ' (MP3 on this device)';
-    const opts = [['original', `Original${s ? ` (${fileLabel(s)})` : ''}`], ['opus128', `Opus 128 kbps · sounds like MP3 320${opus}`], ['opus96', `Opus 96 kbps · data saver${opus}`],
+    const opts = [['original', `Original${s ? ` (${fileLabel(s)})` : ''}`], ['opus128', 'Opus 128 kbps'], ['opus96', 'Opus 96 kbps'],
       ['high', 'MP3 320 kbps'], ['normal', 'MP3 192 kbps'], ['low', 'MP3 128 kbps']];
     Menu.open(anchor, opts.map(([k, l]) => ({ key: 'q-' + k, label: `${k === cur ? '✓ ' : '\u2003 '}${l}`, run: () => {
       Player.setQuality(k);
@@ -575,7 +574,7 @@ songMenu = function (anchor, s) {
       <div class="set-row"><div><h3>Volume levelling</h3><p>${locked ? 'Not available in this browser (iPhone and iPad).' : 'Evens out loud and quiet songs using ReplayGain tags. Automatic uses album levels when you play an album and song levels otherwise.'}</p></div>
         <div class="set-actions"><select class="select" data-pref="rg" ${locked ? 'disabled' : ''}>${[['auto', 'Automatic'], ['track', 'Song'], ['album', 'Album'], ['off', 'Off']].map(([v, l]) => `<option value="${v}"${Prefs.get('rg') === v ? ' selected' : ''}>${l}</option>`).join('')}</select></div></div>
       <div class="set-row"><div><h3>Streaming quality</h3><p>Original plays your files as they are (lossless and hi-res stay intact). The others are converted by Navidrome to save data on mobile: Opus sounds as good as MP3 at about half the size and keeps albums gapless${CAN_OPUS ? '' : ' (this device can\'t play Opus, so it gets MP3 instead)'}.</p></div>
-        <div class="set-actions"><select class="select" data-pref="quality">${[['original', 'Original'], ['opus128', 'Opus 128 (like MP3 320)'], ['opus96', 'Opus 96 (data saver)'], ['high', 'MP3 320'], ['normal', 'MP3 192'], ['low', 'MP3 128']].map(([v, l]) => `<option value="${v}"${Prefs.get('quality') === v ? ' selected' : ''}>${l}</option>`).join('')}</select></div></div>
+        <div class="set-actions"><select class="select" data-pref="quality">${[['original', 'Original'], ['opus128', 'Opus 128'], ['opus96', 'Opus 96'], ['high', 'MP3 320'], ['normal', 'MP3 192'], ['low', 'MP3 128']].map(([v, l]) => `<option value="${v}"${Prefs.get('quality') === v ? ' selected' : ''}>${l}</option>`).join('')}</select></div></div>
       <div class="set-row"><div><h3>Download quality</h3><p>Original keeps lossless files (large: an album can be 1–2 GB in hi-res). Opus 128 is about half the size of MP3 320 at the same sound quality.</p></div>
         <div class="set-actions"><select class="select" data-pref="dlQuality">${[['opus128', 'Opus 128'], ['high', 'MP3 320'], ['original', 'Original']].map(([v, l]) => `<option value="${v}"${Prefs.get('dlQuality') === v ? ' selected' : ''}>${l}</option>`).join('')}</select></div></div>
       <h2 class="set-group">Account</h2>`);
