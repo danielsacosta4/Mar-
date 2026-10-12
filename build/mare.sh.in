@@ -112,7 +112,7 @@ caddyfile() {   # caddyfile NAVIDROME_URL
 	# The app.
 	handle {
 		root * /var/www/mare
-		@shell path / /index.html /app.js /discover.js /extras.js /sw.js /app.css /manifest.webmanifest
+		@shell path / /index.html /app.js /discover.js /extras.js /collection.js /sw.js /app.css /manifest.webmanifest
 		header @shell Cache-Control "no-cache"
 		@fonts path /fonts/*
 		header @fonts Cache-Control "public, max-age=2592000"

@@ -1,6 +1,6 @@
 /* Maré — a Navidrome (Subsonic / OpenSubsonic) web client. */
 'use strict';
-window.MARE_VERSION = '1.3.0';
+window.MARE_VERSION = '1.4.0';
 
 /* ================= Utilities ================= */
 
@@ -317,7 +317,7 @@ function trackRows(songs, { art = false, album = true, numbers = 'track', discs 
     return `<div class="track" data-act="play-row" data-list="${listId}" data-i="${i}" data-song="${esc(s.id)}">
       ${lead}
       <div class="t-main">
-        <div class="t-title">${esc(s.title)}</div>
+        <div class="t-title">${esc(s.title)}<span class="t-rating">${s.userRating ? '★'.repeat(s.userRating) : ''}</span></div>
         <div class="t-sub">${s.artistId ? `<a href="#/artist/${esc(s.artistId)}" data-stop>${esc(s.artist)}</a>` : esc(s.artist || '')}</div>
       </div>
       ${art && album ? `<a class="t-album" href="#/album/${esc(s.albumId)}" data-stop>${esc(s.album || '')}</a>` : ''}
@@ -876,13 +876,14 @@ View.home = async (main) => {
 
   window.Discover?.home($('#home-discover')).catch(() => {});
   const weekly = window.Discover?.weekly ? window.Discover.weekly().catch(() => null) : Promise.resolve(null);
-  const [recent, newest, frequent, random, starred, genres] = await Promise.all([
+  const [recent, newest, frequent, random, starred, genres, highest] = await Promise.all([
     albums('recent', 24).catch(() => []),
     albums('newest', 24).catch(() => []),
     albums('frequent', 60).catch(() => []),
     albums('random', 24).catch(() => []),
     albums('starred', 24).catch(() => []),
     API.call('getGenres', {}, { cache: 10 * MIN }).then((r) => r.genres?.genre || []).catch(() => []),
+    albums('highest', 24).then((l) => l.filter((a) => a.userRating)).catch(() => []),
   ]);
   if (UI.route.name !== 'home') return;
   const route = UI.route;
@@ -917,6 +918,9 @@ View.home = async (main) => {
   let html = '';
   if (recent.length) html += section('Recently Played', shelf(recent), '#/albums?sort=recent');
   if (newest.length) html += section('Recently Added', shelf(newest), '#/albums?sort=newest');
+  if (highest.length) {
+    html += `<section class="section"><div class="section-head"><h2>Top Rated</h2><span class="head-links"><a href="#" data-act="mix-top">Play your 5-star songs</a><a href="#/albums?sort=highest">See all</a></span></div>${shelf(highest)}</section>`;
+  }
   if (frequent.length) html += section('On Repeat', shelf(frequent.slice(0, 24)), '#/albums?sort=frequent');
   if (rediscover.length >= 4) html += section('Rediscover', shelf(rediscover));
   if (random.length) html += section('Something Different', shelf(random), '#/albums?sort=random');
@@ -996,7 +1000,7 @@ function renderFront(w, { recent, newest, frequent }) {
 View.albums = async (main, params) => {
   const sorts = [
     ['newest', 'Recently Added'], ['recent', 'Recently Played'], ['frequent', 'Most Played'],
-    ['alphabeticalByName', 'Title'], ['alphabeticalByArtist', 'Artist'], ['random', 'Random'],
+    ['highest', 'Top Rated'], ['alphabeticalByName', 'Title'], ['alphabeticalByArtist', 'Artist'], ['random', 'Random'],
   ];
   const sort = sorts.some(([k]) => k === params.get('sort')) ? params.get('sort') : (store.get('albumSort') || 'newest');
   main.innerHTML = `<div class="page-head"><h1 class="page-title">Albums</h1>
@@ -1045,6 +1049,7 @@ View.album = async (main, params, id) => {
           <h1>${esc(a.name)}</h1>
           ${a.artistId ? `<a class="detail-artist" href="#/artist/${esc(a.artistId)}">${esc(a.artist)}</a>` : `<div class="detail-artist">${esc(a.artist || '')}</div>`}
           <div class="detail-meta">${esc(meta)}</div>
+          ${typeof Rating !== 'undefined' ? `<div class="album-rate"><span class="label">Your rating</span>${Rating.stars(a.userRating || 0, `data-kind="album" data-id="${esc(a.id)}"`)}</div>` : ''}
         </div>
       </header>
       <div class="sleeve-back">
@@ -1056,7 +1061,7 @@ View.album = async (main, params, id) => {
         </div>
         ${trackRows(songs, { sides: true })}
         <p class="album-foot">${plural(songs.length, 'song')}, ${fmtLong(total)}${a.playCount ? ` · you've played it ${plural(a.playCount, 'time')}` : ''}${a.played ? `, last on ${esc(new Date(a.played).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' }))}` : ''}</p>
-        <div class="liner" id="liner">${creditsHtml(a, songs)}</div>
+        <div class="liner" id="liner">${creditsHtml(a, songs)}${typeof specSheet === 'function' ? specSheet(songs) : ''}</div>
       </div>
     </article>
     <div id="album-more"></div>`;
@@ -1110,8 +1115,6 @@ function creditsHtml(a, songs) {
     const list = [...set];
     out.push([list.length > 1 && /er$/.test(label) ? label + 's' : label, list.length > 5 ? `${list.slice(0, 4).join(', ')} and ${list.length - 4} more` : list.join(', ')]);
   }
-  const q = typeof albumQuality === 'function' ? albumQuality(songs) : null;
-  if (q) out.push(['Your copy', q.detail]);
   return out.length ? `<dl class="credits">${out.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>` : '';
 }
 
@@ -1504,6 +1507,7 @@ const UI = {
     Player.els.forEach((el) => { el.pause(); el.removeAttribute('src'); });
     API.clear();
     store.del('player');
+    store.del('catalog');
     location.hash = '#/home';
     location.reload();
   },
@@ -1697,9 +1701,13 @@ function start() {
   UI.loadSidebarPlaylists();
   UI.render();
   window.Discover?.onStart?.();
+  if (window.Catalog) setTimeout(() => window.Catalog.ensure().catch(() => {}), 4000);
 }
 
 (async function boot() {
+  // Start only once every script has run (discover.js, extras.js… patch the UI); offline, the ping fails fast
+  // enough to otherwise render before the offline handling exists.
+  if (document.readyState === 'loading') await new Promise((r) => document.addEventListener('DOMContentLoaded', r, { once: true }));
   if (!API.load()) { showLogin(); return; }
   try { await API.call('ping'); start(); }
   catch (e) {

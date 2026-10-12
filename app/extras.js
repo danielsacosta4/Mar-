@@ -416,7 +416,11 @@ window.addEventListener('offline', () => Offline.setOffline(true));
       if (key && offlineItemView(main, key)) return;
       if (Offline.count()) { location.hash = '#/downloads'; return; }
     }
+    const wasOffline = Offline.offline;
     await render();
+    // The page failed because the server couldn't be reached (the device itself may look online):
+    // now that we know, show the downloaded copy instead of the error.
+    if (!wasOffline && Offline.offline && $('#main > .empty [data-act="reload"]')) return UI.render();
     const more = $('#more');
     if (more && 'IntersectionObserver' in window) {
       const io = new IntersectionObserver((es) => { if (es[0].isIntersecting && !more.hidden && !more.disabled) more.click(); }, { root: $('#main'), rootMargin: '800px' });

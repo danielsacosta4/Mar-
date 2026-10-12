@@ -1,9 +1,9 @@
 /* Maré service worker: keeps the app usable offline and plays downloaded songs. */
-const VERSION = '1.3.0';
+const VERSION = '1.4.0';
 const SHELL = 'mare-shell-' + VERSION;
 const AUDIO = 'mare-audio';
 const ART = 'mare-art';
-const SHELL_FILES = ['./', 'index.html', 'app.css', 'app.js', 'discover.js', 'extras.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png'];
+const SHELL_FILES = ['./', 'index.html', 'app.css', 'app.js', 'discover.js', 'extras.js', 'collection.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png'];
 // Fonts are fetched by the installer; if they're missing the app falls back to system fonts, so don't fail on them.
 const FONT_FILES = ['fonts/archivo.woff2', 'fonts/newsreader.woff2', 'fonts/newsreader-italic.woff2'];
 

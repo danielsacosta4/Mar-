@@ -104,6 +104,11 @@ async def main():
         await pg.screenshot(path=f'{SP}/r3-offline.png')
         await ctx.set_offline(False); await pg.evaluate('API.call("ping")'); await pg.wait_for_timeout(500)
         print('back online, bar:', await pg.locator('#offline-bar').count())
+        # Server unreachable while the device is online: the downloaded album still opens (not an error page)
+        await ctx.route('**/rest/**', lambda r: r.continue_() if ('stream' in r.request.url or 'getCoverArt' in r.request.url) else r.abort('connectionrefused'))
+        await pg.goto(B+'#/album/al2'); await pg.reload(); await pg.wait_for_timeout(2500)
+        print('server down, device online:', await pg.locator('.detail-kicker').all_text_contents(), '| error page:', await pg.locator('#main > .empty').count())
+        await ctx.unroute('**/rest/**'); await pg.evaluate('API.call("ping")'); await pg.wait_for_timeout(500)
         # --- artists az + settings
         await pg.goto(B+'#/artists'); await pg.wait_for_selector('.az'); print('az letters', await pg.locator('.az a').count(), 'groups', await pg.locator('.az-group').count())
         await pg.goto(B+'#/settings'); await pg.wait_for_selector('[data-pref=crossfade]')

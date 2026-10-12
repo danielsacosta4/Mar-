@@ -40,6 +40,8 @@ app/            The web app (static files, no framework, no build step needed to
   discover.js   Round 2: ListenBrainz client, library matching, Radio, Lyrics, Home discovery rows, Settings view
   extras.js     Round 3: quality badges, playlist editing, drag-to-reorder, offline downloads, A–Z artists,
                 playback settings. Wraps/extends functions from app.js and discover.js.
+  collection.js Round 4: library Catalog (per-album quality summary), quality labels on cards, album spec sheet,
+                Collection page (#/collection), star ratings (setRating), Top Rated / 5-star mix.
   sw.js         Service worker: app shell cache, downloaded songs (with Range support) and covers
 build/
   mare.sh.in    Installer template (bash). __VERSION__ is replaced; the app is appended after __MARE_PAYLOAD__
@@ -48,12 +50,14 @@ build/
 test/
   mock_server.py  Mock Navidrome (/rest) + ListenBrainz (/lb/1) + static files, port 8765. User demo / secret
   test_*.py       Playwright browser tests (desktop + mobile, light + dark); screenshots to test-output/
+                  (core, discovery, round3 = playlists/downloads/offline, round4 = collection + ratings)
   run.sh          Starts the mock and runs all suites
   fakepve/        Fake pct/pveam/pvesh/pvesm/systemctl to exercise mare.sh without Proxmox
 mare.sh         The built installer; this is what the owner's curl command downloads. Commit it with every release.
 ```
 
-Scripts load in order `app.js` → `discover.js` → `extras.js`; later files use top-level bindings of earlier ones
+Scripts load in order `app.js` → `discover.js` → `extras.js` → `collection.js`; `boot()` waits for DOMContentLoaded
+so every patch is in place before the first render (offline, the ping fails fast enough to race them). Later files use top-level bindings of earlier ones
 (`API`, `Player`, `UI`, `View`, `actions`, `store`, `register`, `icon`, `STROKE`, …) and patch them by wrapping
 (e.g. `UI.render`, `UI.renderQueue`, `UI.syncPlayer`, `songMenu`, `View.settings`, `API.call`).
 
@@ -86,6 +90,16 @@ Scripts load in order `app.js` → `discover.js` → `extras.js`; later files us
   Side A / Side B at half the running time (discs when multi-disc), with credits from OpenSubsonic `contributors`,
   `recordLabels`, `releaseDate`, and liner notes from `getAlbumInfo2`. Clicking a cover uses the View Transitions API
   to grow it into the album page (`UI.coverFrom`); other page changes do a short slide (`.main.turn`).
+- **Collection (1.4)**: Navidrome reports quality only per song, so `Catalog` reads every song once (`search3` with an
+  empty query, 500 per page) into a compact per-album summary in localStorage `mare.catalog` (format, bit depth and
+  sample-rate range, bitrate, size, ReplayGain-tagged count, lossy count) plus the user's rated songs. It is rebuilt
+  when `getScanStatus.lastScan` changes or after a week; started 4 s after `start()`. Cards get `.qtags` (24/96 FLAC…),
+  filled later by `Catalog.paint()` if the catalog wasn't ready. Album pages get a spec sheet computed from the songs.
+  "Volume tags" = `replayGain.trackGain/albumGain` present. No "source" line: Navidrome can't know where files came from.
+- **Ratings (1.4)**: 1–5 stars via Subsonic `setRating` (0 clears; tapping the current rating clears it) for songs and
+  albums, stored in Navidrome. Stars on the album page, at the top of the song menu, in Now Playing, and keys 1–5/0 for
+  the playing song; rated songs show ★ in track rows. Home "Top Rated" row = `getAlbumList2 type=highest` (rated only);
+  "Play your 5-star songs" (`mix-top`) uses the catalog's rated songs (5★, or 4★+ when fewer than 10).
 - **Lyrics**: OpenSubsonic `getLyricsBySongId` (synced first), fallback `getLyrics`.
 - **Downloads** (`extras.js` + `sw.js`): songs fetched and stored in Cache Storage under `/offline/song/<id>`,
   covers under `/offline/art/<id>`; the service worker serves them (with HTTP Range) for any `/rest/stream?id=`.
@@ -97,7 +111,8 @@ Scripts load in order `app.js` → `discover.js` → `extras.js`; later files us
 
 1. Change files in `app/` (bump `window.MARE_VERSION` in `app.js` and `VERSION` in `sw.js` together).
 2. `build/build.sh <version>` → new `mare.sh`. Keep it under ~120 KB: the `bash -c "$(curl …)"` one-liner passes
-   the whole script as a single argument and Linux caps that at 128 KiB (currently ~85 KB). If it ever gets close,
+   the whole script as a single argument and Linux caps that at 128 KiB (currently ~100 KB, so close: the next
+   big addition should move the app itself out of the script, like the fonts). If it ever gets close,
    switch the install line to download-then-run, or fetch the app from the repo instead of embedding it.
    The fonts in `app/fonts/` are already fetched this way (`fetch_fonts` in mare.sh.in, from `MARE_ASSETS`, default
    raw.githubusercontent.com/…/main/app); if the download fails the previous fonts are kept, else system fonts.
@@ -121,6 +136,10 @@ uses `LANG=C.UTF-8` to avoid locale noise.
 - **1.3.0** "Sleeve": full redesign chosen by the owner from three directions (Tide / Sleeve / Hi-fi). Weekly front
   page Home, record-sleeve album pages (sides, credits, liner notes), magazine artist profiles, A–Z dividers,
   album-colour Now Playing, night edition, self-hosted fonts fetched by the installer.
+- **1.4.0**: Collection: quality labels on album cards, spec sheet per album, Collection page (hi-res / CD / lossy /
+  missing volume tags, resolution chart, filters). Star ratings (songs + albums) with Top Rated row, 5-star mix,
+  "Top Rated" album sort, rating from Now Playing and keys 1–5. Fix: downloaded albums now open offline on first
+  load and when the server is unreachable but the device is online.
 
 ## Roadmap (agreed with the owner; each needs a plan + go-ahead first)
 
