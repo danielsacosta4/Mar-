@@ -1,6 +1,6 @@
 /* Maré — a Navidrome (Subsonic / OpenSubsonic) web client. */
 'use strict';
-window.MARE_VERSION = '1.2.0';
+window.MARE_VERSION = '1.3.0';
 
 /* ================= Utilities ================= */
 
@@ -194,6 +194,8 @@ function newList(songs) {
 /* ================= Artwork tint ================= */
 
 const tintCache = new Map();
+// The cover's main colour: the strongest hue family wins (so a yellow cover with a blue disc stays yellow,
+// instead of averaging to mud). Mostly grey/black/white covers give their average.
 function extractTint(src) {
   if (!src) return Promise.resolve(null);
   if (tintCache.has(src)) return Promise.resolve(tintCache.get(src));
@@ -202,25 +204,31 @@ function extractTint(src) {
     img.crossOrigin = 'anonymous';
     img.onload = () => {
       try {
-        const c = document.createElement('canvas'); c.width = c.height = 24;
+        const N = 32;
+        const c = document.createElement('canvas'); c.width = c.height = N;
         const ctx = c.getContext('2d', { willReadFrequently: true });
-        ctx.drawImage(img, 0, 0, 24, 24);
-        const d = ctx.getImageData(0, 0, 24, 24).data;
-        // Weight each pixel by its saturation so the tint follows the cover's colour, not its greys.
-        let r = 0, g = 0, b = 0, wsum = 0;
+        ctx.drawImage(img, 0, 0, N, N);
+        const d = ctx.getImageData(0, 0, N, N).data;
+        const buckets = Array.from({ length: 12 }, () => [0, 0, 0, 0]);
+        const all = [0, 0, 0, 0];
         for (let i = 0; i < d.length; i += 4) {
           const R = d[i], G = d[i + 1], B = d[i + 2];
           const max = Math.max(R, G, B), min = Math.min(R, G, B);
-          const sat = max ? (max - min) / max : 0;
-          const lum = (max + min) / 510;
-          const w = 0.15 + sat * sat * 2 * (1 - Math.abs(lum - 0.5));
-          r += R * w; g += G * w; b += B * w; wsum += w;
+          all[0] += R; all[1] += G; all[2] += B; all[3]++;
+          const sat = max ? (max - min) / max : 0, val = max / 255;
+          if (sat < 0.3 || val < 0.2) continue;
+          let h;
+          if (max === R) h = ((G - B) / (max - min) + 6) % 6;
+          else if (max === G) h = (B - R) / (max - min) + 2;
+          else h = (R - G) / (max - min) + 4;
+          const k = Math.floor(h * 2) % 12, w = sat * val;
+          const bk = buckets[k];
+          bk[0] += R * w; bk[1] += G * w; bk[2] += B * w; bk[3] += w;
         }
-        let rgb = [r / wsum, g / wsum, b / wsum];
-        // Keep it deep enough for white text on top.
-        const l = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
-        if (l > 120) rgb = rgb.map((v) => v * (120 / l));
-        if (l < 28) rgb = rgb.map((v) => v + (28 - l));
+        const best = buckets.reduce((a, b) => (b[3] > a[3] ? b : a));
+        const rgb = best[3] > all[3] * 0.08
+          ? [best[0] / best[3], best[1] / best[3], best[2] / best[3]]
+          : [all[0] / all[3], all[1] / all[3], all[2] / all[3]];
         const out = rgb.map((v) => Math.round(Math.min(255, Math.max(0, v))));
         tintCache.set(src, out);
         resolve(out);
@@ -230,9 +238,22 @@ function extractTint(src) {
     img.src = src;
   });
 }
+// Black or off-white lettering, whichever has more contrast on the colour.
+function inkOn(rgb) {
+  const lin = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+  const L = 0.2126 * lin(rgb[0]) + 0.7152 * lin(rgb[1]) + 0.0722 * lin(rgb[2]);
+  return (L + 0.05) / 0.0566 >= 1.05 / (L + 0.05) ? 'dark' : 'light';
+}
+const INK = { dark: '17, 17, 17', light: '250, 248, 243' };
+function setColour(el, rgb, name = 'tint') {
+  if (!el || !rgb) return;
+  const ink = inkOn(rgb);
+  el.style.setProperty(`--${name}`, rgb.join(', '));
+  el.style.setProperty(`--${name === 'tint' ? 'on-tint' : name + '-on'}`, INK[ink]);
+  if (name === 'tint') el.dataset.ink = ink;
+}
 async function applyTint(el, src) {
-  const rgb = await extractTint(src);
-  if (rgb && el) el.style.setProperty('--tint', rgb.join(', '));
+  setColour(el, await extractTint(src));
 }
 
 /* ================= UI helpers ================= */
@@ -285,22 +306,15 @@ function section(title, body, link) {
 const shelf = (items, card = albumCard) => items.length ? `<div class="shelf">${items.map(card).join('')}</div>` : '';
 const grid = (items, card = albumCard) => `<div class="grid">${items.map(card).join('')}</div>`;
 
-function trackRows(songs, { art = false, album = true, numbers = 'track', discs = false } = {}) {
+function trackRows(songs, { art = false, album = true, numbers = 'track', discs = false, sides = false } = {}) {
   const listId = newList(songs);
   const list = Lists.get(listId);
-  let html = '';
-  let lastDisc = null;
-  const multiDisc = discs && new Set(list.map((s) => s.discNumber || 1)).size > 1;
-  list.forEach((s, i) => {
-    if (multiDisc && (s.discNumber || 1) !== lastDisc) {
-      lastDisc = s.discNumber || 1;
-      html += `<div class="disc-label">Disc ${lastDisc}</div>`;
-    }
+  const row = (s, i) => {
     const num = numbers === 'track' ? (s.track || i + 1) : i + 1;
     const lead = art
       ? `<img class="t-thumb" loading="lazy" src="${esc(API.cover(s.coverArt, 80))}" alt="">`
       : `<span class="t-num" data-num="${num}">${num}</span>`;
-    html += `<div class="track" data-act="play-row" data-list="${listId}" data-i="${i}" data-song="${esc(s.id)}">
+    return `<div class="track" data-act="play-row" data-list="${listId}" data-i="${i}" data-song="${esc(s.id)}">
       ${lead}
       <div class="t-main">
         <div class="t-title">${esc(s.title)}</div>
@@ -311,13 +325,48 @@ function trackRows(songs, { art = false, album = true, numbers = 'track', discs 
       <span class="t-dur">${fmtTime(s.duration)}</span>
       <button class="t-more" data-act="menu-song" data-id="${esc(s.id)}" data-list="${listId}" data-i="${i}" aria-label="More">${icon('more')}</button>
     </div>`;
+  };
+  const multiDisc = (discs || sides) && new Set(list.map((s) => s.discNumber || 1)).size > 1;
+  if (sides) {
+    const groups = sideGroups(list, multiDisc);
+    return `<div class="tracks sides${groups.length === 2 ? ' two' : ''}">${groups.map((g) => `<div class="side">${groups.length > 1
+      ? `<div class="side-head"><span class="cond">${esc(g.name)}</span><span class="label">${Math.round(g.items.reduce((t, x) => t + (x.s.duration || 0), 0) / 60)} min</span></div>` : ''}${g.items.map((x) => row(x.s, x.i)).join('')}</div>`).join('')}</div>`;
+  }
+  let html = '';
+  let lastDisc = null;
+  list.forEach((s, i) => {
+    if (multiDisc && (s.discNumber || 1) !== lastDisc) {
+      lastDisc = s.discNumber || 1;
+      html += `<div class="disc-label">Disc ${lastDisc}</div>`;
+    }
+    html += row(s, i);
   });
   return `<div class="tracks${art ? ' with-art' : ''}${art && !album ? ' no-album' : ''}">${html}</div>`;
+}
+
+// An album as a record: one side per disc, or a single disc cut into Side A and Side B at the halfway point.
+function sideGroups(list, multiDisc) {
+  const items = list.map((s, i) => ({ s, i }));
+  if (multiDisc) {
+    const by = new Map();
+    items.forEach((x) => { const d = x.s.discNumber || 1; if (!by.has(d)) by.set(d, []); by.get(d).push(x); });
+    return [...by].map(([d, g]) => ({ name: `Disc ${d}`, items: g }));
+  }
+  if (items.length < 4) return [{ name: '', items }];
+  const total = list.reduce((t, s) => t + (s.duration || 0), 0);
+  let acc = 0, cut = 1, best = Infinity;
+  for (let k = 1; k < items.length; k++) {
+    acc += list[k - 1].duration || 0;
+    const diff = Math.abs(total / 2 - acc);
+    if (diff < best) { best = diff; cut = k; }
+  }
+  return [{ name: 'Side A', items: items.slice(0, cut) }, { name: 'Side B', items: items.slice(cut) }];
 }
 
 function markPlaying() {
   const cur = Player.current();
   const paused = Player.audio.paused;
+  $$('.chart-row[data-song]').forEach((row) => row.classList.toggle('is-playing', !!cur && row.dataset.song === cur.id));
   $$('.track').forEach((row) => {
     const on = !!cur && row.dataset.song === cur.id;
     row.classList.toggle('is-playing', on);
@@ -815,14 +864,18 @@ function songMenu(anchor, s) {
 const View = {};
 
 View.home = async (main) => {
-  const hour = new Date().getHours();
-  const greet = hour < 5 ? 'Good night' : hour < 12 ? 'Good morning' : hour < 19 ? 'Good afternoon' : 'Good evening';
-  main.innerHTML = `<h1 class="page-title">${greet}</h1>
+  const today = new Date();
+  main.innerHTML = `<header class="masthead">
+      <h1 class="mast-title cond">Maré</h1>
+      <div class="mast-issue"><span class="label" id="mast-kicker">From your library</span><span class="when" id="mast-when">${esc(today.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }))}</span></div>
+    </header>
+    <section class="front skel-front" id="front"><div class="feature"><div class="art skel"></div></div><div class="chart"></div></section>
     <div class="mixes" id="mixes">${'<div class="mix skel"></div>'.repeat(3)}</div>
     <div id="home-discover"></div>
     <div id="home-rest">${section('Recently Played', skeletonShelf())}${section('Recently Added', skeletonShelf())}</div>`;
 
   window.Discover?.home($('#home-discover')).catch(() => {});
+  const weekly = window.Discover?.weekly ? window.Discover.weekly().catch(() => null) : Promise.resolve(null);
   const [recent, newest, frequent, random, starred, genres] = await Promise.all([
     albums('recent', 24).catch(() => []),
     albums('newest', 24).catch(() => []),
@@ -832,6 +885,8 @@ View.home = async (main) => {
     API.call('getGenres', {}, { cache: 10 * MIN }).then((r) => r.genres?.genre || []).catch(() => []),
   ]);
   if (UI.route.name !== 'home') return;
+  const route = UI.route;
+  weekly.then((w) => { if (UI.route === route) renderFront(w, { recent, newest, frequent }); });
 
   // Rediscover: albums you played a lot, but not lately.
   const recentIds = new Set(recent.map((a) => a.id));
@@ -839,19 +894,19 @@ View.home = async (main) => {
 
   const pick4 = (arr) => shuffleArr(arr.filter((a) => a.coverArt)).slice(0, 4);
   const mixDefs = [
-    { key: 'mix-library', kicker: 'Mix', title: 'Shuffle your library', sub: 'A random hundred from everything you own', covers: pick4(random.length ? random : newest) },
-    { key: 'mix-favorites', kicker: 'Mix', title: 'Your Favorites', sub: 'Songs you\'ve hearted, shuffled', covers: pick4(starred.length ? starred : frequent) },
-    { key: 'mix-new', kicker: 'Mix', title: 'Fresh in the library', sub: 'The latest albums you\'ve added', covers: pick4(newest) },
+    { key: 'mix-library', title: 'Shuffle your library', sub: 'A random hundred from everything you own', covers: pick4(random.length ? random : newest) },
+    { key: 'mix-favorites', title: 'Your Favorites', sub: 'Songs you\'ve hearted, shuffled', covers: pick4(starred.length ? starred : frequent) },
+    { key: 'mix-new', title: 'Fresh in the library', sub: 'The latest albums you\'ve added', covers: pick4(newest) },
   ];
   $('#mixes').innerHTML = mixDefs.map((m) => `<button class="mix" data-act="${m.key}">
-      <div class="mix-collage">${(m.covers.length ? Array.from({ length: 4 }, (_, k) => m.covers[k % m.covers.length]) : []).map((a) => `<img src="${esc(API.cover(a.coverArt, 300))}" alt="">`).join('')}</div>
-      <span class="mix-kicker">${m.kicker}</span>
+      <div class="mix-collage">${(m.covers.length ? Array.from({ length: 4 }, (_, k) => m.covers[k % m.covers.length]) : []).map((a) => `<img src="${esc(API.cover(a.coverArt, 120))}" alt="">`).join('')}</div>
+      <span class="mix-kicker">Mix</span>
       <span class="mix-title">${esc(m.title)}</span>
       <span class="mix-sub">${esc(m.sub)}</span>
     </button>`).join('');
   $$('#mixes .mix').forEach((el, i) => {
     const c = mixDefs[i].covers[0];
-    if (c) extractTint(API.cover(c.coverArt, 300)).then((rgb) => rgb && el.style.setProperty('--mix', rgb.join(', ')));
+    if (c) extractTint(API.cover(c.coverArt, 300)).then((rgb) => setColour(el, rgb, 'mix'));
   });
 
   const topGenres = genres.slice().sort((a, b) => (b.albumCount || 0) - (a.albumCount || 0)).slice(0, 18);
@@ -872,6 +927,72 @@ View.home = async (main) => {
   $('#home-rest').innerHTML = html;
 };
 
+/* The front page: one album, big, in its own colour; a numbered chart beside it.
+   With ListenBrainz it's your week (w); without, it comes from Navidrome's play counts. */
+function renderFront(w, { recent, newest, frequent }) {
+  const box = $('#front');
+  if (!box) return;
+  const fmtDay = (ts, opts) => new Date(ts * 1000).toLocaleDateString(undefined, opts);
+  let album, kicker, quote, strip = '', chartTitle, chart = '';
+  if (w && (w.album || w.songs.length)) {
+    const last = w.range === 'week';
+    $('#mast-kicker').textContent = last ? 'Your last week in music' : 'Your week in music';
+    if (w.from && w.to) {
+      const a = fmtDay(w.from, { day: 'numeric', month: 'long' }), b = fmtDay(w.to - 1, { day: 'numeric', month: 'long', year: 'numeric' });
+      $('#mast-when').textContent = `${a} – ${b}`;
+    }
+    album = w.album;
+    kicker = last ? 'Your album of last week' : 'Your album of the week';
+    if (album && w.albumPlays) quote = `You played it ${plural(w.albumPlays, 'time')} ${last ? 'last week' : 'this week'}.`;
+    const span = last ? 'last week' : 'this week';
+    const cells = [
+      w.listens != null && [w.listens.toLocaleString(), `plays ${span}`],
+      w.artists != null && [w.artists.toLocaleString(), w.artists === 1 ? 'artist' : 'artists'],
+      w.releases != null && [w.releases.toLocaleString(), w.releases === 1 ? 'album' : 'albums'],
+      w.genre && [w.genre, 'your top genre'],
+    ].filter(Boolean);
+    if (cells.length) strip = `<div class="feature-strip">${cells.map(([n, l]) => `<div><b>${esc(n)}</b>${esc(l)}</div>`).join('')}</div>`;
+    if (w.songs.length) {
+      chartTitle = `Your top ${w.songs.length === 1 ? 'song' : w.songs.length} ${span}`;
+      const listId = newList(w.songs.map((x) => x.song));
+      chart = w.songs.map((x, i) => `<button class="chart-row" data-act="play-row" data-list="${listId}" data-i="${i}" data-song="${esc(x.song.id)}">
+          <span class="chart-no">${i + 1}</span><img loading="lazy" src="${esc(API.cover(x.song.coverArt, 120))}" alt="">
+          <span><span class="chart-title">${esc(x.song.title)}</span><span class="chart-sub">${esc(x.song.artist || '')}${x.plays ? ` · ${plural(x.plays, 'play')}` : ''}</span></span></button>`).join('');
+    }
+  }
+  if (!album) {
+    const top = new Set(frequent.slice(0, 30).map((a) => a.id));
+    album = recent.find((a) => top.has(a.id)) || recent[0] || frequent[0] || newest[0];
+    if (!album) { box.remove(); return; }
+    if (!kicker) kicker = top.has(album.id) ? 'On heavy rotation' : recent.includes(album) ? 'Recently played' : 'New in the library';
+    if (!quote) quote = album.playCount ? `You've played it ${plural(album.playCount, 'time')} so far.` : 'Waiting for its first spin.';
+  }
+  if (!chart) {
+    const list = frequent.filter((a) => a.playCount).slice(0, 5);
+    if (list.length) {
+      chartTitle = 'Your most played albums';
+      chart = list.map((a, i) => `<a class="chart-row" href="#/album/${esc(a.id)}"><span class="chart-no">${i + 1}</span>
+          <img loading="lazy" src="${esc(API.cover(a.coverArt, 120))}" alt="">
+          <span><span class="chart-title">${esc(a.name)}</span><span class="chart-sub">${esc(a.artist || '')} · ${plural(a.playCount, 'play')}</span></span></a>`).join('');
+    }
+  }
+  box.classList.remove('skel-front');
+  box.innerHTML = `<div class="feature">
+      <a class="art" href="#/album/${esc(album.id)}">${artImg(album.coverArt, 600, album.name)}</a>
+      <div class="feature-text">
+        <span class="label">${esc(kicker)}</span>
+        <h2 class="feature-title cond"><a href="#/album/${esc(album.id)}">${esc(album.name)}</a></h2>
+        ${album.artistId ? `<a class="feature-by" href="#/artist/${esc(album.artistId)}">` : '<span class="feature-by">'}${esc(album.artist || '')}${album.year ? ` · ${album.year}` : ''}${album.artistId ? '</a>' : '</span>'}
+        <p class="feature-quote">${esc(quote || '')}</p>
+        <button class="btn btn-primary" data-act="play-album" data-id="${esc(album.id)}">${icon('play')}Play the album</button>
+      </div>
+      ${strip}
+    </div>
+    <div class="chart">${chart ? `<span class="label">${esc(chartTitle)}</span>${chart}` : `<span class="label">Your chart</span><p class="front-note">Play some music and your most played albums will show up here.</p>`}</div>`;
+  applyTint($('.feature', box), API.cover(album.coverArt, 300));
+  markPlaying();
+}
+
 View.albums = async (main, params) => {
   const sorts = [
     ['newest', 'Recently Added'], ['recent', 'Recently Played'], ['frequent', 'Most Played'],
@@ -882,12 +1003,19 @@ View.albums = async (main, params) => {
     <select class="select" id="album-sort" aria-label="Sort albums">${sorts.map(([k, l]) => `<option value="${k}"${k === sort ? ' selected' : ''}>${l}</option>`).join('')}</select></div>
     <div id="album-grid" class="grid"></div><div class="load-more"><button class="btn" id="more" hidden>Load more</button></div>`;
   $('#album-sort').onchange = (e) => { store.set('albumSort', e.target.value); location.hash = '#/albums?sort=' + e.target.value; };
+  // Alphabetical sorts get record-shop dividers: a big letter wherever the first letter changes.
+  const byLetter = sort === 'alphabeticalByName' ? (a) => a.name : sort === 'alphabeticalByArtist' ? (a) => a.artist : null;
+  let letter = null;
   let offset = 0;
   const size = 60;
   const more = async () => {
     const list = await albums(sort, size, offset);
     if (UI.route.name !== 'albums') return;
-    $('#album-grid').insertAdjacentHTML('beforeend', list.map(albumCard).join(''));
+    $('#album-grid').insertAdjacentHTML('beforeend', list.map((a) => {
+      const l = byLetter && firstLetter(byLetter(a));
+      const head = l && l !== letter ? `<h2 class="az-head">${esc(letter = l)}</h2>` : '';
+      return head + albumCard(a);
+    }).join(''));
     offset += list.length;
     $('#more').hidden = list.length < size || sort === 'random';
     if (!offset) $('#album-grid').outerHTML = '<div class="empty"><h3>No albums yet</h3></div>';
@@ -895,36 +1023,54 @@ View.albums = async (main, params) => {
   $('#more').onclick = () => run(more);
   await more();
 };
+const firstLetter = (s) => {
+  const c = String(s || '').replace(/^(the|a|an)\s+/i, '').normalize('NFKD').trim().charAt(0).toUpperCase();
+  return /[A-Z]/.test(c) ? c : '#';
+};
 
 View.album = async (main, params, id) => {
-  main.innerHTML = `<div class="detail"><div class="art skel"></div><div></div></div>`;
+  main.innerHTML = `<div class="sleeve"><div class="sleeve-front"><div class="art skel"></div></div><div class="sleeve-back"></div></div>`;
   const { album: a, songs } = await albumSongs(id);
   if (UI.route.id !== id) return;
   const starred = !!a.starred;
   if (starred) UI.starredAlbums.add(a.id); else UI.starredAlbums.delete(a.id);
   const total = songs.reduce((t, s) => t + (s.duration || 0), 0);
   const genre = a.genre || songs.find((s) => s.genre)?.genre;
-  const meta = [genre, a.year].filter(Boolean).join(' · ');
-  main.innerHTML = `<header class="detail">
-      <div class="art">${artImg(a.coverArt, 600, a.name)}</div>
-      <div>
-        <div class="detail-kicker">${a.isCompilation ? 'Compilation' : 'Album'}</div>
-        <h1>${esc(a.name)}</h1>
-        ${a.artistId ? `<a class="detail-artist" href="#/artist/${esc(a.artistId)}">${esc(a.artist)}</a>` : `<div class="detail-artist">${esc(a.artist || '')}</div>`}
-        <div class="detail-meta">${esc(meta)}</div>
+  const meta = [a.year, genre].filter(Boolean).join(' · ');
+  main.innerHTML = `<article class="sleeve">
+      <header class="sleeve-front">
+        <div class="art">${artImg(a.coverArt, 600, a.name)}</div>
+        <div>
+          <div class="detail-kicker">${a.isCompilation ? 'Compilation' : 'Album'}</div>
+          <h1>${esc(a.name)}</h1>
+          ${a.artistId ? `<a class="detail-artist" href="#/artist/${esc(a.artistId)}">${esc(a.artist)}</a>` : `<div class="detail-artist">${esc(a.artist || '')}</div>`}
+          <div class="detail-meta">${esc(meta)}</div>
+        </div>
+      </header>
+      <div class="sleeve-back">
         <div class="detail-actions">
           <button class="btn btn-primary" data-act="play-album" data-id="${esc(a.id)}">${icon('play')}Play</button>
           <button class="btn" data-act="shuffle-album" data-id="${esc(a.id)}">${icon('shuffle')}Shuffle</button>
           <button class="btn btn-ghost${starred ? ' on' : ''}" data-act="star-album" data-id="${esc(a.id)}">${heartIcon(starred)}${starred ? 'Favorited' : 'Favorite'}</button>
           <button class="icon-btn" data-act="menu-album" data-id="${esc(a.id)}" aria-label="More">${icon('more')}</button>
         </div>
+        ${trackRows(songs, { sides: true })}
+        <p class="album-foot">${plural(songs.length, 'song')}, ${fmtLong(total)}${a.playCount ? ` · you've played it ${plural(a.playCount, 'time')}` : ''}${a.played ? `, last on ${esc(new Date(a.played).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' }))}` : ''}</p>
+        <div class="liner" id="liner">${creditsHtml(a, songs)}</div>
       </div>
-    </header>
-    ${trackRows(songs, { discs: true })}
-    <p class="album-foot">${plural(songs.length, 'song')}, ${fmtLong(total)}</p>
+    </article>
     <div id="album-more"></div>`;
-  applyTint($('.detail', main), API.cover(a.coverArt, 300));
+  if (UI.vt) $('.sleeve-front .art', main).style.viewTransitionName = 'cover';
+  applyTint($('.sleeve-front', main), API.cover(a.coverArt, 300));
   markPlaying();
+  // Liner notes: Navidrome's album description (from its metadata agents), when there is one.
+  API.call('getAlbumInfo2', { id }, { cache: 30 * MIN }).then((r) => {
+    const box = $('#liner');
+    const tmp = document.createElement('div'); tmp.innerHTML = r.albumInfo?.notes || '';
+    $$('a', tmp).forEach((x) => x.remove());
+    const text = tmp.textContent.replace(/\s+/g, ' ').trim();
+    if (text && box && UI.route.id === id) box.insertAdjacentHTML('afterbegin', `<p class="liner-notes">${esc(text)}</p>`);
+  }).catch(() => {});
   if (a.artistId) {
     API.call('getArtist', { id: a.artistId }, { cache: 5 * MIN }).then((r) => {
       const others = (r.artist.album || []).filter((x) => x.id !== a.id);
@@ -932,6 +1078,42 @@ View.album = async (main, params, id) => {
     }).catch(() => {});
   }
 };
+
+// Credits, the way the back of a sleeve prints them. Only what the files actually say.
+function creditsHtml(a, songs) {
+  const out = [];
+  const date = (d) => d && d.year ? new Date(d.year, (d.month || 1) - 1, d.day || 1)
+    .toLocaleDateString(undefined, d.day ? { day: 'numeric', month: 'long', year: 'numeric' } : d.month ? { month: 'long', year: 'numeric' } : { year: 'numeric' }) : '';
+  const rel = date(a.releaseDate), orig = date(a.originalReleaseDate);
+  if (rel) out.push(['Released', rel]);
+  if (orig && a.originalReleaseDate.year !== a.releaseDate?.year) out.push(['First released', orig]);
+  const labels = (a.recordLabels || []).map((l) => l.name).filter(Boolean);
+  if (labels.length) out.push([labels.length > 1 ? 'Labels' : 'Label', labels.join(', ')]);
+  const genres = (a.genres || []).map((g) => g.name).filter(Boolean);
+  if (genres.length > 1) out.push(['Genres', genres.join(', ')]);
+  const names = {
+    composer: 'Composer', lyricist: 'Lyrics', arranger: 'Arranger', conductor: 'Conductor', producer: 'Producer',
+    engineer: 'Engineer', mixer: 'Mixed by', remixer: 'Remixer', director: 'Director', djmixer: 'DJ mix',
+  };
+  const roles = new Map();
+  const add = (label, name) => { if (!name) return; if (!roles.has(label)) roles.set(label, new Set()); roles.get(label).add(name); };
+  for (const s of songs) {
+    if (s.contributors?.length) {
+      for (const c of s.contributors) {
+        const r = String(c.role || '').toLowerCase();
+        if (r === 'performer') add(c.subRole ? c.subRole.charAt(0).toUpperCase() + c.subRole.slice(1) : 'Performer', c.artist?.name);
+        else if (names[r]) add(names[r], c.artist?.name);
+      }
+    } else if (s.displayComposer) add('Composer', s.displayComposer);
+  }
+  for (const [label, set] of [...roles].slice(0, 12)) {
+    const list = [...set];
+    out.push([list.length > 1 && /er$/.test(label) ? label + 's' : label, list.length > 5 ? `${list.slice(0, 4).join(', ')} and ${list.length - 4} more` : list.join(', ')]);
+  }
+  const q = typeof albumQuality === 'function' ? albumQuality(songs) : null;
+  if (q) out.push(['Your copy', q.detail]);
+  return out.length ? `<dl class="credits">${out.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>` : '';
+}
 
 View.artists = async (main) => {
   main.innerHTML = `<h1 class="page-title">Artists</h1><div id="artist-grid">${skeletonShelf()}</div>`;
@@ -942,22 +1124,41 @@ View.artists = async (main) => {
 };
 
 View.artist = async (main, params, id) => {
-  main.innerHTML = `<div class="artist-hero"></div>`;
+  main.innerHTML = `<header class="profile"><div class="profile-text"></div><div class="profile-photo skel"></div></header>`;
   const r = await API.call('getArtist', { id }, { cache: 5 * MIN });
   if (UI.route.id !== id) return;
   const a = r.artist;
   const list = (a.album || []).slice().sort((x, y) => (y.year || 0) - (x.year || 0));
   const heroSrc = a.artistImageUrl || (a.coverArt ? API.cover(a.coverArt, 1200) : '') || (list[0] ? API.cover(list[0].coverArt, 1200) : '');
-  main.innerHTML = `<header class="artist-hero">
-      ${heroSrc ? `<img src="${esc(heroSrc)}" alt="">` : ''}
-      <div><button class="hero-play" data-act="play-artist" data-id="${esc(a.id)}" aria-label="Shuffle ${esc(a.name)}">${icon('play')}</button><h1>${esc(a.name)}</h1>
-        <button class="hero-radio" data-act="radio-artist" data-id="${esc(a.id)}">${icon('radio')}Radio</button></div>
+  // Group the discography by release type when the server knows it (Albums, EPs, Singles…).
+  const typeOf = (x) => String(x.releaseTypes?.[0] || '').toLowerCase();
+  const groups = [['album', 'Albums'], ['ep', 'EPs'], ['single', 'Singles'], ['live', 'Live'], ['compilation', 'Compilations']];
+  let disco = '';
+  if (list.some((x) => x.releaseTypes?.length)) {
+    const used = new Set();
+    for (const [k, title] of groups) {
+      const g = list.filter((x) => typeOf(x) === k);
+      g.forEach((x) => used.add(x));
+      if (g.length) disco += section(title, grid(g, discCard));
+    }
+    const rest = list.filter((x) => !used.has(x));
+    if (rest.length) disco += section(disco ? 'Other releases' : 'Discography', grid(rest, discCard));
+  } else disco = section('Discography', grid(list, discCard));
+  main.innerHTML = `<header class="profile">
+      <div class="profile-text">
+        <div class="detail-kicker">Artist · ${plural(list.length, 'album')}</div>
+        <h1>${esc(a.name)}</h1>
+        <div class="profile-acts">
+          <button class="hero-play" data-act="play-artist" data-id="${esc(a.id)}" aria-label="Shuffle ${esc(a.name)}">${icon('play')}</button>
+          <button class="hero-radio" data-act="radio-artist" data-id="${esc(a.id)}">${icon('radio')}Radio</button>
+        </div>
+      </div>
+      <div class="profile-photo">${heroSrc ? `<img src="${esc(heroSrc)}" alt="">` : ''}</div>
     </header>
-    <div id="artist-top"></div>
-    ${section('Albums', grid(list))}
-    <div id="artist-similar"></div>
-    <div id="artist-bio"></div>`;
-  applyTint($('.artist-hero', main), API.cover(a.coverArt || list[0]?.coverArt, 300));
+    <div class="profile-cols"><div id="artist-bio"></div><div id="artist-top"></div></div>
+    ${disco}
+    <div id="artist-similar"></div>`;
+  applyTint($('.profile', main), API.cover(a.coverArt || list[0]?.coverArt, 300));
 
   // These depend on Navidrome's metadata agents (ListenBrainz / Last.fm); show them only when they return something.
   API.call('getTopSongs', { artist: a.name, count: 10 }, { cache: 30 * MIN }).then((t) => {
@@ -972,11 +1173,25 @@ View.artist = async (main, params, id) => {
     if (sim.length) $('#artist-similar').innerHTML = section('Similar Artists in Your Library', shelf(sim, artistCard));
     if (i.biography) {
       const tmp = document.createElement('div'); tmp.innerHTML = i.biography;
-      const text = tmp.textContent.trim();
-      if (text) $('#artist-bio').innerHTML = section(`About ${a.name}`, `<p class="bio">${esc(text)}</p>`);
+      $$('a', tmp).forEach((x) => x.remove());
+      const text = tmp.textContent.replace(/\s+/g, ' ').trim();
+      if (text) {
+        $('#artist-bio').innerHTML = section('Profile', `<p class="bio${text.length > 700 ? ' clamped' : ''}">${esc(text)}</p>${text.length > 700 ? '<button class="bio-more" data-act="bio-more">Read more</button>' : ''}`);
+      }
     }
   }).catch(() => {});
 };
+
+// Discography card: the year leads, like a catalogue listing.
+function discCard(a) {
+  return `<a class="card" href="#/album/${esc(a.id)}">
+    <div class="art">${artImg(a.coverArt, 300)}
+      <button class="art-play" data-act="play-album" data-id="${esc(a.id)}" aria-label="Play ${esc(a.name)}">${icon('play')}</button>
+    </div>
+    ${a.year ? `<div class="card-year">${a.year}</div>` : ''}
+    <div class="card-title">${esc(a.name)}</div>
+  </a>`;
+}
 
 View.songs = async (main) => {
   main.innerHTML = `<div class="page-head"><h1 class="page-title">Songs</h1>
@@ -1164,7 +1379,31 @@ const UI = {
       a.classList.toggle('active', !!active);
     });
     main.scrollTop = 0;
-    try { await view(main, r.params, r.id); }
+    // Page turn: a short slide when the page changes (not when the same page refreshes).
+    const path = r.name + '/' + (r.id || '');
+    const turned = path !== this.lastPath;
+    this.lastPath = path;
+    // Cover grows into the album page, where the browser supports view transitions.
+    const img = this.coverFrom;
+    this.coverFrom = null;
+    let p;
+    const start = () => { p = view(main, r.params, r.id); return p; };
+    if (img && img.isConnected && r.name === 'album' && document.startViewTransition && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      img.style.viewTransitionName = 'cover';
+      this.vt = true;
+      const vt = document.startViewTransition(async () => {
+        start();
+        await Promise.race([p.catch(() => {}), new Promise((res) => setTimeout(res, 320))]);
+        const art = $('.sleeve-front .art', main);
+        if (art) art.style.viewTransitionName = 'cover';
+      });
+      vt.finished.finally(() => { this.vt = false; $$('[style*="view-transition-name"]').forEach((e) => { e.style.viewTransitionName = ''; }); });
+      await vt.updateCallbackDone.catch(() => {});
+    } else {
+      if (turned) { main.classList.remove('turn'); void main.offsetWidth; main.classList.add('turn'); }
+      start();
+    }
+    try { await p; }
     catch (e) {
       if (e.code === 40 || e.code === 41) { this.logout(); return; }
       main.innerHTML = `<div class="empty"><h3>Couldn't load this page</h3><p>${esc(e.message)}</p><button class="btn" data-act="reload">Try again</button></div>`;
@@ -1327,7 +1566,14 @@ const actions = {
   'q-remove': (el) => Player.removeAt(+el.dataset.i),
   logout: () => UI.logout(),
   reload: () => UI.render(),
+  'bio-more': (el) => { const b = el.previousElementSibling; b?.classList.toggle('clamped'); el.textContent = b?.classList.contains('clamped') ? 'Read more' : 'Show less'; },
 };
+
+// Remember which cover was clicked, so it can grow into the album page.
+document.addEventListener('click', (e) => {
+  const a = e.target.closest('a[href^="#/album/"]');
+  UI.coverFrom = a && !e.target.closest('[data-act]') ? $('.art img', a) || (a.matches('.art') ? $('img', a) : null) : null;
+}, true);
 
 document.addEventListener('click', (e) => {
   const mi = e.target.closest('[data-mi]');

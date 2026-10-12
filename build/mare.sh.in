@@ -10,8 +10,9 @@
 #  Next runs : finds the Maré container and updates it in place
 #              (your settings are kept).
 #
-#  Everything Maré needs is inside this file; nothing else to download
-#  except the Debian template and Caddy from Debian's own repositories.
+#  The app is inside this file. Its typefaces are downloaded from the
+#  Maré repository on GitHub (they don't fit in a one-line install), the
+#  Debian template and Caddy come from their own repositories.
 # ============================================================================
 set -Eeuo pipefail
 # The new container has no locales yet; use the built-in one so apt/perl stay quiet.
@@ -20,6 +21,9 @@ unset LANGUAGE
 
 MARE_VERSION="__VERSION__"
 TAG="mare"
+# Where the typefaces come from (override for testing).
+MARE_ASSETS=${MARE_ASSETS:-https://raw.githubusercontent.com/danielsacosta4/Mar-/main/app}
+FONTS=(archivo.woff2 newsreader.woff2 newsreader-italic.woff2)
 
 # ---------- look ----------
 B=$'\e[1m'; D=$'\e[2m'; G=$'\e[32m'; R=$'\e[31m'; Y=$'\e[33m'; C=$'\e[36m'; N=$'\e[0m'
@@ -64,6 +68,14 @@ extract_payload() {   # writes the app files to $1
   [[ -f $1/index.html ]] || die "The app files inside the script are incomplete."
 }
 
+fetch_fonts() {   # fetch_fonts DIR -> downloads the typefaces into DIR/fonts; 1 if any failed
+  local f
+  mkdir -p "$1/fonts"
+  for f in "${FONTS[@]}"; do
+    curl -fsSL -m 30 --retry 2 "$MARE_ASSETS/fonts/$f" -o "$1/fonts/$f" 2>/dev/null || { rm -rf "$1/fonts"; return 1; }
+  done
+}
+
 caddyfile() {   # caddyfile NAVIDROME_URL
   local url=${1%/} scheme hostport base rewrite="" tls=""
   scheme=$(sed -E 's#^(https?)://.*#\1#' <<<"$url")
@@ -102,6 +114,8 @@ caddyfile() {   # caddyfile NAVIDROME_URL
 		root * /var/www/mare
 		@shell path / /index.html /app.js /discover.js /extras.js /sw.js /app.css /manifest.webmanifest
 		header @shell Cache-Control "no-cache"
+		@fonts path /fonts/*
+		header @fonts Cache-Control "public, max-age=2592000"
 		try_files {path} /index.html
 		file_server
 	}
@@ -126,6 +140,7 @@ push_app() {   # push_app CTID NAVIDROME_URL
   local id=$1 nav=$2 tmp
   tmp=$(mktemp -d)
   extract_payload "$tmp/www"
+  fetch_fonts "$tmp/www" || warn "Couldn't download Maré's typefaces from GitHub; keeping the ones already installed (or using the system fonts)."
   tar czf "$tmp/mare.tgz" -C "$tmp/www" .
   caddyfile "$nav" >"$tmp/Caddyfile"
   printf 'NAVIDROME=%q\nMARE_VERSION=%q\n' "$nav" "$MARE_VERSION" >"$tmp/mare.conf"
@@ -136,6 +151,7 @@ push_app() {   # push_app CTID NAVIDROME_URL
     set -e
     rm -rf /var/www/mare.new && mkdir -p /var/www/mare.new
     tar xzf /tmp/mare.tgz -C /var/www/mare.new && rm -f /tmp/mare.tgz
+    if [ ! -d /var/www/mare.new/fonts ] && [ -d /var/www/mare/fonts ]; then cp -r /var/www/mare/fonts /var/www/mare.new/; fi
     rm -rf /var/www/mare.old
     [ -d /var/www/mare ] && mv /var/www/mare /var/www/mare.old
     mv /var/www/mare.new /var/www/mare && rm -rf /var/www/mare.old

@@ -38,6 +38,7 @@ async def main():
             print(name,'lb radio:', await pg.evaluate('Radio.label()'), await pg.evaluate('Player.queue.length'))
             # song radio via menu + clearing radio on normal play
             await pg.goto(B+'#/album/al3'); await pg.wait_for_selector('.track')
+            await pg.locator('.t-more >> nth=1').scroll_into_view_if_needed(); await pg.wait_for_timeout(600)  # the list scrolls smoothly
             await pg.click('.t-more >> nth=1', force=True); await pg.click('[data-mi=radio]'); await pg.wait_for_timeout(1500)
             print(name,'song radio:', await pg.evaluate('Radio.label()'), 'first:', await pg.evaluate('Player.current()?.title'))
             await pg.click('.track >> nth=0'); await pg.wait_for_timeout(300)

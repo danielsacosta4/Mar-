@@ -32,7 +32,10 @@ interface and Spotify-style discovery built on **ListenBrainz**. It is a persona
 ```
 app/            The web app (static files, no framework, no build step needed to run)
   index.html    Shell: sidebar, main, player bar, Now Playing overlay, tab bar
-  app.css       All styles (light/dark via prefers-color-scheme, mobile at ≤760px, NP stacks at ≤1000px)
+  app.css       All styles, "Sleeve" design (light "paper" / dark "night edition" via prefers-color-scheme,
+                mobile at ≤760px, NP stacks at ≤1000px)
+  fonts/        Archivo (condensed display + UI) and Newsreader (serif), latin subsets, OFL. NOT embedded in
+                mare.sh: the installer downloads them from GitHub (main branch) at install time.
   app.js        Core: API client (token auth, MD5), song registry, Player (2-element engine), views, router, UI
   discover.js   Round 2: ListenBrainz client, library matching, Radio, Lyrics, Home discovery rows, Settings view
   extras.js     Round 3: quality badges, playlist editing, drag-to-reorder, offline downloads, A–Z artists,
@@ -74,6 +77,15 @@ Scripts load in order `app.js` → `discover.js` → `extras.js`; later files us
   top artists/songs = LB stats; matching to the library via `search3` (normalised artist + title, cached in localStorage).
   Radio uses Navidrome `getSimilarSongs2` (Navidrome's agents include ListenBrainz and Deezer) and refills the
   queue as it runs low; "Recommended Radio" uses LB Radio (`/1/explore/lb-radio`, token required, rate-limited ~5 per window).
+- **Design ("Sleeve", 1.3)**: flat colour, square corners, thick black rules, huge condensed capitals (Archivo at
+  `font-stretch: 62%`) and a serif (Newsreader) for reading text. Each album's main colour (`extractTint`: strongest
+  hue family of the cover, not the average) fills album/playlist/artist headers, the Home feature and Now Playing;
+  `setColour` also sets `--on-tint` (black or off-white, whichever contrasts more) and `data-ink`. Accent red is for
+  "now playing" and progress only. Home is a weekly front page (`renderFront` in app.js; data from `Discover.weekly`
+  = LB stats `this_week`, falling back to last `week`, then to Navidrome play counts). Album pages split into
+  Side A / Side B at half the running time (discs when multi-disc), with credits from OpenSubsonic `contributors`,
+  `recordLabels`, `releaseDate`, and liner notes from `getAlbumInfo2`. Clicking a cover uses the View Transitions API
+  to grow it into the album page (`UI.coverFrom`); other page changes do a short slide (`.main.turn`).
 - **Lyrics**: OpenSubsonic `getLyricsBySongId` (synced first), fallback `getLyrics`.
 - **Downloads** (`extras.js` + `sw.js`): songs fetched and stored in Cache Storage under `/offline/song/<id>`,
   covers under `/offline/art/<id>`; the service worker serves them (with HTTP Range) for any `/rest/stream?id=`.
@@ -87,8 +99,11 @@ Scripts load in order `app.js` → `discover.js` → `extras.js`; later files us
 2. `build/build.sh <version>` → new `mare.sh`. Keep it under ~120 KB: the `bash -c "$(curl …)"` one-liner passes
    the whole script as a single argument and Linux caps that at 128 KiB (currently ~85 KB). If it ever gets close,
    switch the install line to download-then-run, or fetch the app from the repo instead of embedding it.
+   The fonts in `app/fonts/` are already fetched this way (`fetch_fonts` in mare.sh.in, from `MARE_ASSETS`, default
+   raw.githubusercontent.com/…/main/app); if the download fails the previous fonts are kept, else system fonts.
 3. `test/run.sh` (mock server + Playwright). Also worth a run of mare.sh with `test/fakepve` on PATH and a `caddy`
    binary available, then pointing the tests at `MARE_URL=http://127.0.0.1/` to test the installed, minified build.
+   Set `MARE_ASSETS=http://127.0.0.1:8765` so the fonts come from the mock server instead of GitHub.
 4. Commit `app/`, `build/`, `test/` and `mare.sh`; give the owner a commit message.
 
 The installer on a re-run finds the container by its `mare` tag and only replaces the app + Caddyfile
@@ -103,6 +118,9 @@ uses `LANG=C.UTF-8` to avoid locale noise.
   recommended), synced lyrics, Settings page, `/lb` proxy, console autologin.
 - **1.2.0**: gapless + crossfade engine, ReplayGain levelling, hi-res badges, streaming/download quality,
   playlist create/rename/delete/reorder/add/remove, draggable Up Next, offline downloads, A–Z artists, infinite scroll.
+- **1.3.0** "Sleeve": full redesign chosen by the owner from three directions (Tide / Sleeve / Hi-fi). Weekly front
+  page Home, record-sleeve album pages (sides, credits, liner notes), magazine artist profiles, A–Z dividers,
+  album-colour Now Playing, night edition, self-hosted fonts fetched by the installer.
 
 ## Roadmap (agreed with the owner; each needs a plan + go-ahead first)
 
