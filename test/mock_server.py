@@ -16,12 +16,18 @@ for i,n in enumerate(names):
         sid=f"so{i}_{t}"
         s=dict(id=sid,title=f"{n.split()[0]} Song {t}" if t>1 else n,artist=ar[1],artistId=ar[0],album=n,albumId=aid,coverArt=aid,duration=40+t*7,track=t,discNumber=1,year=1975+i*4,genre=genres[i%5],isDir=False)
         if (i+t)%7==0: s["starred"]="2026-01-01T00:00:00Z"
-        s.update(suffix="flac", bitRate=2300 if i%2 else 900, bitDepth=24 if i%2 else 16, samplingRate=96000 if i%2 else 44100,
-                 replayGain={"trackGain":-6.5-t*0.3,"albumGain":-7.0,"trackPeak":0.98,"albumPeak":0.99})
+        s.update(suffix="flac", bitRate=2300 if i%2 else 900, bitDepth=24 if i%2 else 16, samplingRate=96000 if i%2 else 44100)
+        if i==5: s.update(suffix="mp3", bitRate=320, samplingRate=44100); s.pop("bitDepth")      # a lossy album
+        if i==9: s.update(bitRate=4600, samplingRate=192000)                                      # 24/192
+        if i not in (6,7,8,10): s["replayGain"]={"trackGain":-6.5-t*0.3,"albumGain":-7.0,"trackPeak":0.98,"albumPeak":0.99}
+        s["size"]=int(s["bitRate"]*125*s["duration"]*40)
+        if (i*8+t)%5==0: s["userRating"]=5
+        elif (i*8+t)%7==0: s["userRating"]=4
         tr.append(s); songs.append(s)
     albums.append(dict(id=aid,name=n,artist=ar[1],artistId=ar[0],coverArt=aid,songCount=8,duration=sum(x["duration"] for x in tr),year=1975+i*4,genre=genres[i%5],playCount=random.randint(0,40),songs=tr,starred="2026-01-01T00:00:00Z" if i%4==0 else None,
         recordLabels=[{"name":"Valentim de Carvalho"}] if i%3==2 else None,releaseDate={"year":1975+i*4,"month":3,"day":14} if i%3==2 else None,
-        releaseTypes=[["Album","EP","Single"][i%3]],played="2026-10-09T21:00:00Z" if i%2 else None))
+        releaseTypes=[["Album","EP","Single"][i%3]],played="2026-10-09T21:00:00Z" if i%2 else None,
+        userRating={2:5,4:4,7:3}.get(i)))
 # Credits on one album, as Navidrome reports them (OpenSubsonic "contributors").
 for s in albums[2]['songs']:
     s['contributors']=[{"role":"composer","artist":{"id":"c1","name":"Amália Rodrigues"}},{"role":"performer","subRole":"portuguese guitar","artist":{"id":"c2","name":"Rui Lourenço"}},{"role":"producer","artist":{"id":"c3","name":"Pedro Lima"}}]
@@ -67,6 +73,7 @@ class H(SimpleHTTPRequestHandler):
             if t=='random': random.shuffle(L)
             elif t=='alphabeticalByName': L.sort(key=lambda a:a['name'])
             elif t=='frequent': L.sort(key=lambda a:-a['playCount'])
+            elif t=='highest': L.sort(key=lambda a:-(a.get('userRating') or 0))
             elif t=='recent': L=L[3:9]
             elif t=='starred': L=[a for a in L if a.get('starred')]
             elif t=='byGenre': L=[a for a in L if a['genre']==q.get('genre')]
@@ -125,6 +132,15 @@ class H(SimpleHTTPRequestHandler):
             return s.send_json(ok(lyricsList={"structuredLyrics":[]}))
         if m=='getLyrics':
             return s.send_json(ok(lyrics={}))
+        if m=='getScanStatus':
+            return s.send_json(ok(scanStatus={"scanning":False,"count":len(songs),"lastScan":"2026-10-10T10:00:00Z"}))
+        if m=='setRating':
+            log.append('setRating '+q['id']+' '+q['rating']); n=int(q['rating'])
+            for x in songs+albums:
+                if x['id']==q['id']:
+                    if n: x['userRating']=n
+                    else: x.pop('userRating',None)
+            return s.send_json(ok())
         if m in ('scrobble','star','unstar'):
             return s.send_json(ok())
         return s.send_json({"subsonic-response":{"status":"failed","error":{"code":0,"message":"unknown "+m}}})

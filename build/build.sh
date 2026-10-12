@@ -4,7 +4,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 VER=${1:?usage: build/build.sh <version>}
-FILES=(index.html app.css app.js discover.js extras.js sw.js icon.svg icon-192.png icon-512.png manifest.webmanifest)
+FILES=(index.html app.css app.js discover.js extras.js collection.js sw.js icon.svg icon-192.png icon-512.png manifest.webmanifest)
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/src"; (cd app && cp "${FILES[@]}" "$TMP/src/")
 python3 build/minify.py "$TMP/src" "$TMP/min"
