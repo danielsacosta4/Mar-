@@ -1,0 +1,2 @@
+#!/bin/bash
+[[ $1 == -I ]] && echo "127.0.0.1 " || /bin/hostname "$@"

@@ -1,0 +1,3 @@
+#!/bin/bash
+case $1 in update) ;; available) printf 'system          debian-12-standard_12.12-1_amd64.tar.zst\nsystem          debian-13-standard_13.1-2_amd64.tar.zst\nsystem          alpine-3.22-default_20250617_amd64.tar.xz\n';;
+list) ;; download) echo "downloading $3";; esac

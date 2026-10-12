@@ -1,0 +1,47 @@
+import asyncio, sys, os
+from playwright.async_api import async_playwright
+SP=sys.argv[1] if len(sys.argv)>1 else 'test-output'; os.makedirs(SP, exist_ok=True); B=os.environ.get('MARE_URL','http://127.0.0.1:8765/')
+async def main():
+    async with async_playwright() as p:
+        br=await p.chromium.launch(args=['--autoplay-policy=no-user-gesture-required'])
+        errs=[]
+        async def run(name, w, h, scheme):
+            ctx=await br.new_context(viewport={'width':w,'height':h}, color_scheme=scheme, device_scale_factor=1)
+            pg=await ctx.new_page()
+            pg.on('console', lambda m: m.type=='error' and errs.append(f'{name}: {m.text}'))
+            pg.on('pageerror', lambda e: errs.append(f'{name} PAGEERR: {e}'))
+            await pg.goto(B)
+            await pg.fill('input[name=user]','demo'); await pg.fill('input[name=pass]','wrong'); await pg.click('button[type=submit]')
+            await pg.wait_for_timeout(500); print(name,'bad login msg:', await pg.text_content('#login-error'))
+            await pg.fill('input[name=pass]','secret'); await pg.click('button[type=submit]')
+            await pg.wait_for_selector('.sheet', timeout=5000); await pg.click('[data-close]'); await pg.wait_for_selector('.shelf .card', timeout=5000); await pg.wait_for_timeout(1200)
+            await pg.screenshot(path=f'{SP}/{name}-home.png')
+            await pg.goto(B+'#/album/al2'); await pg.wait_for_selector('.track'); await pg.wait_for_timeout(600)
+            await pg.click('.track >> nth=1'); await pg.wait_for_timeout(1500)
+            print(name,'playing:', await pg.evaluate('Player.current() && Player.current().title'), 'paused:', await pg.evaluate('Player.audio.paused'), 'eq:', await pg.locator('.track.is-playing .eq').count() if w>760 else 'n/a')
+            await pg.screenshot(path=f'{SP}/{name}-album.png')
+            await pg.click('.t-more >> nth=3', force=True); await pg.wait_for_timeout(200)
+            await pg.click('[data-mi=queue]'); await pg.wait_for_timeout(200)
+            print(name,'queue len:', await pg.evaluate('Player.queue.length'))
+            await pg.click('.p-now'); await pg.wait_for_timeout(900)
+            await pg.screenshot(path=f'{SP}/{name}-np.png')
+            await pg.keyboard.press('Escape'); await pg.wait_for_timeout(400)
+            await pg.goto(B+'#/search?q=lua'); await pg.wait_for_timeout(1000)
+            await pg.screenshot(path=f'{SP}/{name}-search.png')
+            await pg.goto(B+'#/artist/ar3'); await pg.wait_for_timeout(1200)
+            await pg.screenshot(path=f'{SP}/{name}-artist.png', full_page=False)
+            for r in ['#/albums','#/artists','#/songs','#/favorites','#/playlists','#/playlist/pl1','#/genre/Fado','#/decade/1990','#/library']:
+                await pg.goto(B+r); await pg.wait_for_timeout(500)
+                if await pg.locator('.empty h3:has-text("Couldn")').count(): print('FAILED view', r)
+            await pg.goto(B+'#/favorites'); await pg.wait_for_timeout(600)
+            if w<=760: await ctx.close(); return
+            before=await pg.locator('.t-heart.on').count()
+            await pg.locator('.t-heart >> nth=0').click(force=True); await pg.wait_for_timeout(400)
+            print(name,'unstar ok:', await pg.locator('.t-heart.on').count()==before-1)
+            await ctx.close()
+        await run('desk',1400,880,'light')
+        await run('deskdark',1400,880,'dark')
+        await run('mob',390,844,'dark')
+        print('ERRORS:', errs or 'none')
+        await br.close()
+asyncio.run(main())
