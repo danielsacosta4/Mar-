@@ -1,6 +1,6 @@
 /* Maré — a Navidrome (Subsonic / OpenSubsonic) web client. */
 'use strict';
-window.MARE_VERSION = '1.4.0';
+window.MARE_VERSION = '1.4.1';
 
 /* ================= Utilities ================= */
 
@@ -400,9 +400,58 @@ const Player = {
 
   current() { return this.queue[this.index] || null; },
 
-  src(song) {
+  // Converted streams can't be seeked by the browser (no byte ranges), so a converted song starts from a position
+  // with timeOffset and the element remembers that offset (el._offset). pos()/dur() hide this from the rest.
+  transcodes(song) {
     const kbps = QUALITY[Prefs.get('quality')];
-    return API.stream(song.id, kbps ? { format: 'mp3', maxBitRate: kbps } : null);
+    if (!kbps || !song || window.Offline?.hasSong?.(song.id)) return false;   // downloads play the stored copy
+    return !(String(song.suffix || '').toLowerCase() === 'mp3' && song.bitRate && song.bitRate <= kbps);   // Navidrome passes these through
+  },
+  src(song, offset = 0) {
+    const kbps = QUALITY[Prefs.get('quality')];
+    return API.stream(song.id, kbps ? { format: 'mp3', maxBitRate: kbps, ...(offset >= 1 ? { timeOffset: Math.floor(offset) } : {}) } : null);
+  },
+  setSrc(el, song, offset = 0) {
+    el._song = song;
+    el._offset = offset >= 1 && this.transcodes(song) ? Math.floor(offset) : 0;
+    el.src = this.src(song, el._offset);
+  },
+  pos(el = this.audio) { return (el.currentTime || 0) + (el._offset || 0); },
+  dur(el = this.audio) {
+    const s = el._song || (el === this.audio ? this.current() : null), d = el.duration;
+    if ((el._offset || (s && this.transcodes(s))) && s?.duration) return s.duration;
+    return d && isFinite(d) ? d : s?.duration || 0;
+  },
+  seek(t, el = this.audio) {
+    const s = el._song;
+    if (!s) return;
+    t = Math.max(0, Math.min(t, (this.dur(el) || t + 1) - 0.5));
+    if (this.transcodes(s)) {
+      const playing = !el.paused;
+      this.setSrc(el, s, t);
+      if (playing) el.play().catch(() => {});
+      this.onTime(true);
+    } else if (el._offset) {
+      // Was converted, now isn't: load the original and jump there.
+      const playing = !el.paused;
+      this.setSrc(el, s);
+      el.addEventListener('loadedmetadata', () => { el.currentTime = t; }, { once: true });
+      if (playing) el.play().catch(() => {});
+    } else el.currentTime = t;
+  },
+  // Change streaming quality; the song that's playing switches straight away, at the same point.
+  setQuality(q) {
+    Prefs.set('quality', q);
+    if (this.preId) { const sp = this.spare; sp.pause(); sp.removeAttribute('src'); sp._song = null; this.preId = null; }
+    const a = this.audio, s = this.current();
+    if (s && a.getAttribute('src')) {
+      const t = this.pos(), playing = !a.paused;
+      this.stopFade();
+      this.setSrc(a, s, t);
+      if (!a._offset && t > 0.5) a.addEventListener('loadedmetadata', () => { a.currentTime = t; }, { once: true });
+      if (playing) a.play().catch(() => {});
+    }
+    this.sync();
   },
 
   init() {
@@ -433,11 +482,10 @@ const Player = {
       this.vol = saved.volume ?? 1;
       if (this.current()) {
         const a = this.audio;
-        a._song = this.current();
-        a.src = this.src(this.current());
-        this.applyVolume();
         const t = saved.time || 0;
-        a.addEventListener('loadedmetadata', () => { if (t && t < a.duration - 2) a.currentTime = t; }, { once: true });
+        this.setSrc(a, this.current(), t);
+        this.applyVolume();
+        if (!a._offset) a.addEventListener('loadedmetadata', () => { if (t && t < a.duration - 2) a.currentTime = t; }, { once: true });
       }
     }
     window.addEventListener('pagehide', () => this.persist());
@@ -450,7 +498,7 @@ const Player = {
   persist() {
     store.set('player', {
       queue: this.queue.slice(0, 1000), index: this.index, order: this.order ? this.order.slice(0, 1000) : null,
-      shuffle: this.shuffle, repeat: this.repeat, volume: this.vol, time: this.audio.currentTime || 0,
+      shuffle: this.shuffle, repeat: this.repeat, volume: this.vol, time: this.pos(),
     });
   },
 
@@ -529,8 +577,7 @@ const Player = {
       a.pause(); a.removeAttribute('src'); a._song = null;
       this.cur = 1 - this.cur;
     } else {
-      a._song = s;
-      a.src = this.src(s);
+      this.setSrc(a, s);
     }
     this.preId = null;
     this.audio._fade = 1;
@@ -552,22 +599,22 @@ const Player = {
     const cf = Prefs.get('crossfade');
     if (!cf || this.volLocked || !cur || !nxt) return 0;
     if (Prefs.get('smartFade') && cur.albumId && cur.albumId === nxt.albumId) return 0;   // keep albums gapless
-    return Math.min(cf, (this.audio.duration || 0) / 3);
+    return Math.min(cf, this.dur() / 3);
   },
 
   // Runs every 100 ms: preloads the next song and starts it on time.
   tick() {
     const a = this.audio;
     if (a.paused || this.fade || !this.current()) return;
-    const d = a.duration;
-    if (!d || !isFinite(d)) return;
-    const rem = d - a.currentTime;
+    const d = this.dur();
+    if (!d) return;
+    const rem = d - this.pos();
     const nx = this.peekNext();
     if (!nx) return;
     if (this.preId !== nx.song.id && rem < 40) {
       const sp = this.spare;
-      sp._song = nx.song; sp._fade = 0;
-      sp.src = this.src(nx.song);
+      sp._fade = 0;
+      this.setSrc(sp, nx.song);
       sp.load();
       this.preId = nx.song.id;
       this.applyVolume();
@@ -621,18 +668,18 @@ const Player = {
     if (!this.queue.length) return;
     if (this.index < this.queue.length - 1) { this.index++; this.load(true); }
     else if (this.repeat === 'all' || !auto) { this.index = 0; this.load(this.repeat === 'all' || !auto); if (!auto && this.repeat !== 'all') this.audio.pause(); }
-    else { this.audio.pause(); this.audio.currentTime = 0; this.sync(); }
+    else { this.audio.pause(); this.seek(0); this.sync(); }
   },
 
   prev() {
     if (!this.queue.length) return;
-    if (this.audio.currentTime > 3 || this.index === 0) { this.audio.currentTime = 0; return; }
+    if (this.pos() > 3 || this.index === 0) { this.seek(0); return; }
     this.index--; this.load(true);
   },
 
   seekFraction(f) {
-    const d = this.audio.duration || this.current()?.duration || 0;
-    if (d) { this.stopFade(); clearTimeout(this.gapTimer); this.gapTimer = null; this.audio.currentTime = f * d; }
+    const d = this.dur();
+    if (d) { this.stopFade(); clearTimeout(this.gapTimer); this.gapTimer = null; this.seek(f * d); }
   },
 
   jump(i) { if (this.queue[i]) { this.index = i; this.load(true); } },
@@ -728,14 +775,14 @@ const Player = {
 
   finishScrobble() {
     const s = this.current();
-    const d = this.audio.duration || s?.duration || 0;
+    const d = this.dur();
     if (s && !this.scrobbled && d > 30 && this.playedSec >= Math.min(d / 2, 240) - 1) { this.scrobbled = true; this.scrobble(s.id, true); }
   },
 
   onTime(force) {
     const a = this.audio;
-    const d = a.duration || this.current()?.duration || 0;
-    const t = a.currentTime || 0;
+    const d = this.dur();
+    const t = this.pos();
     // Count real listening time so seeking doesn't trigger a scrobble.
     if (!a.paused && this.lastTick && t > this.lastTick && t - this.lastTick < 2) this.playedSec += t - this.lastTick;
     this.lastTick = t;
@@ -767,9 +814,9 @@ const Player = {
     const h = {
       play: () => this.audio.play(), pause: () => { this.stopFade(); this.audio.pause(); },
       previoustrack: () => this.prev(), nexttrack: () => this.next(),
-      seekto: (e) => { if (e.seekTime != null) this.audio.currentTime = e.seekTime; },
-      seekbackward: () => { this.audio.currentTime = Math.max(0, this.audio.currentTime - 10); },
-      seekforward: () => { this.audio.currentTime += 10; },
+      seekto: (e) => { if (e.seekTime != null) this.seek(e.seekTime); },
+      seekbackward: () => { this.seek(this.pos() - 10); },
+      seekforward: () => { this.seek(this.pos() + 10); },
     };
     for (const [k, fn] of Object.entries(h)) { try { ms.setActionHandler(k, fn); } catch { /* unsupported */ } }
   },
@@ -1499,7 +1546,7 @@ const UI = {
     this.npView = v;
     $('#np').classList.toggle('view-queue', v === 'queue');
     $('#np').classList.toggle('view-lyrics', v === 'lyrics');
-    if (v === 'lyrics') window.Lyrics?.onTime(Player.audio.currentTime || 0, true);
+    if (v === 'lyrics') window.Lyrics?.onTime(Player.pos(), true);
     $$('.np-tab').forEach((t) => t.classList.toggle('active', t.dataset.view === v));
   },
 
@@ -1607,7 +1654,7 @@ document.addEventListener('keydown', (e) => {
 function wireRanges() {
   $$('.scrubber').forEach((r) => {
     const preview = () => {
-      const f = r.value / 1000, d = Player.audio.duration || Player.current()?.duration || 0;
+      const f = r.value / 1000, d = Player.dur();
       r.style.setProperty('--p', f * 100 + '%');
       $$('.p-cur').forEach((x) => { x.textContent = fmtTime(f * d); });
     };

@@ -338,7 +338,7 @@ const Lyrics = {
     box.innerHTML = `<div class="ly-lines">${this.lines.map((l, i) =>
       `<p class="ly-line${l.text.trim() ? '' : ' gap'}" data-i="${i}"${this.synced ? ` data-act="ly-seek" data-t="${l.t}"` : ''}>${esc(l.text) || '♪'}</p>`).join('')}</div>`;
     this.active = -1;
-    this.onTime(Player.audio.currentTime || 0, true);
+    this.onTime(Player.pos(), true);
   },
 
   onTime(t, force) {
@@ -636,7 +636,7 @@ Object.assign(actions, {
   },
   'radio-genre': (el) => Radio.start('genre', el.dataset.id),
   'radio-decade': (el) => Radio.start('decade', +el.dataset.id),
-  'ly-seek': (el) => { const t = +el.dataset.t; if (!Number.isNaN(t)) { Player.audio.currentTime = t; if (Player.audio.paused) Player.audio.play().catch(() => {}); } },
+  'ly-seek': (el) => { const t = +el.dataset.t; if (!Number.isNaN(t)) { Player.seek(t); if (Player.audio.paused) Player.audio.play().catch(() => {}); } },
 });
 
 window.Radio = Radio;

@@ -61,6 +61,24 @@ async def main():
             print(name,'5-star mix:', await pg.evaluate('Player.queue.length'), 'all rated 4+:', await pg.evaluate('Player.queue.every(s=>s.userRating>=4)'))
             await pg.goto(B+'#/albums?sort=highest'); await pg.wait_for_selector('.grid .card'); await pg.wait_for_timeout(300)
             print(name,'top rated sort first:', await pg.text_content('.grid .card-title'))
+            if w > 760:
+                # 1.4.1: the player bar (stars, quality picker that applies to the playing song) and right-click menus
+                await pg.goto(B+'#/album/al1'); await pg.wait_for_selector('.track'); await pg.click('.track >> nth=2'); await pg.wait_for_timeout(1500)
+                print(name,'bar label:', await pg.text_content('.p-quality'), '| bar stars:', await pg.locator('.p-rate .star').count(),
+                      '| volume width:', await pg.evaluate("Math.round(document.querySelector('.p-right .volume').getBoundingClientRect().width)"))
+                t0=await pg.evaluate('Player.pos()')
+                await pg.click('.p-quality'); await pg.click('[data-mi=q-normal]'); await pg.wait_for_timeout(700)
+                print(name,'switch to 192 mid-song: still playing', not await pg.evaluate('Player.audio.paused'), '| kept position', await pg.evaluate('Player.pos()') >= t0 - 0.5,
+                      '| src', await pg.evaluate("/format=mp3&maxBitRate=192/.test(Player.audio.src) && /timeOffset=/.test(Player.audio.src)"), '| label:', await pg.text_content('.p-quality'))
+                await pg.click('.p-quality'); await pg.click('[data-mi=q-original]'); await pg.wait_for_timeout(500)
+                print(name,'back to original:', await pg.evaluate("!/format=/.test(Player.audio.src)"), await pg.evaluate("Prefs.get('quality')"))
+                await pg.click('.p-rate .star >> nth=1'); await pg.wait_for_timeout(500)
+                print(name,'rated from bar:', await pg.evaluate('Player.current().userRating'))
+                await pg.click('.track >> nth=4', button='right'); await pg.wait_for_timeout(300)
+                print(name,'right-click song:', await pg.locator('#menu .menu-stars').count(), await pg.locator('#menu [data-mi=next]').count())
+                await pg.keyboard.press('Escape')
+                await pg.goto(B+'#/albums'); await pg.wait_for_selector('.grid .card'); await pg.click('.grid .card >> nth=1', button='right'); await pg.wait_for_timeout(300)
+                print(name,'right-click album:', await pg.evaluate("[...document.querySelectorAll('#menu [data-mi]')].map(b=>b.dataset.mi).join(',')"), '| stayed on page:', await pg.evaluate('location.hash'))
             await ctx.close()
         await run('desk',1400,880,'light')
         await run('mob',390,844,'dark')

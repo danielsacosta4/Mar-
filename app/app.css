@@ -274,6 +274,7 @@ h1, h2, h3 { text-wrap: balance; }
   grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
 }
 .card { display: block; min-width: 0; }
+.card, .track, .q-item, .chart-row, .p-now { -webkit-touch-callout: none; }   /* long-press opens Maré's menu, not the browser's */
 .art { position: relative; aspect-ratio: 1; overflow: hidden; background: var(--hover); max-width: 100%; }
 .art img { width: 100%; height: 100%; object-fit: cover; }
 .art::after { content: ""; position: absolute; inset: 0; box-shadow: inset 0 0 0 1px var(--line); pointer-events: none; }
@@ -503,14 +504,26 @@ a.detail-artist:hover { text-decoration: underline; }
 .player .p-toggle:hover { background: var(--accent); color: #fff; }
 .p-toggle svg { width: 24px; height: 24px; }
 .p-shuffle svg, .p-repeat svg { width: 17px; height: 17px; }
-.p-scrub { display: flex; align-items: center; gap: 10px; width: 100%; max-width: 560px; font: 600 11px var(--font); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.p-scrub { display: flex; align-items: center; gap: 10px; width: 100%; max-width: 660px; font: 600 11px var(--font); color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .p-scrub span { width: 38px; }
 .p-scrub .p-cur { text-align: right; }
 .player .scrubber { --fill: var(--accent); }
 .p-right { display: flex; align-items: center; justify-content: flex-end; gap: 6px; color: var(--ink-2); }
 .p-right .icon-btn { color: var(--ink-2); }
 .p-right .icon-btn:hover { color: var(--strip); }
-.p-right .volume { width: 110px; }
+.p-right .volume { flex: none; width: 120px; }
+/* Stars and quality for the playing song, in the bar */
+.p-rate:empty { display: none; }
+.p-rate { margin: 2px 0 0 -6px; }
+.p-rate .star { width: 22px; height: 20px; color: var(--on-strip); opacity: .4; }
+.p-rate .star.on { opacity: 1; }
+.p-rate .stars:hover .star { opacity: 1; }
+.p-rate .stars .star:hover ~ .star { opacity: .4; }
+.p-rate .star svg { width: 14px; height: 14px; }
+.p-quality { flex: none; cursor: pointer; color: var(--ink-2); border-color: var(--line); }
+.p-quality:hover { color: var(--on-strip); border-color: var(--on-strip); }
+.p-quality.conv { color: var(--accent); border-color: var(--accent); }
+.p-quality.hires { background: var(--on-strip); color: var(--strip); border-color: var(--on-strip); }
 .vol-ico { width: 18px; height: 18px; }
 .p-heart.on { color: var(--accent) !important; }
 .p-mini-toggle, .p-mini-next, .p-mini-progress { display: none; }
@@ -1036,7 +1049,7 @@ input[type="range"]:hover::-moz-range-thumb { opacity: 1; }
     height: var(--player-h); padding: 0 6px 0 10px; gap: 4px;
     grid-template-columns: minmax(0, 1fr) auto auto;
   }
-  .p-center, .p-right { display: none; }
+  .p-center, .p-right, .p-rate { display: none; }
   .p-art { width: 44px; height: 44px; }
   .p-title { font-size: 18px; }
   .p-mini-toggle, .p-mini-next { display: inline-grid; width: 44px; height: 44px; color: var(--on-strip); }
