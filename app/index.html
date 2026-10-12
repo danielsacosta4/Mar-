@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Maré</title>
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Maré">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <div id="login" class="login" hidden>
+    <form id="login-form" class="login-card" autocomplete="on">
+      <div class="login-mark" aria-hidden="true"></div>
+      <h1>Maré</h1>
+      <p class="login-lead">Sign in with your Navidrome account.</p>
+      <label>Username<input name="user" autocomplete="username" required></label>
+      <label>Password<input name="pass" type="password" autocomplete="current-password" required></label>
+      <details class="login-adv">
+        <summary>Server address</summary>
+        <label>Navidrome URL<input name="server" placeholder="Leave empty to use this site" inputmode="url"></label>
+      </details>
+      <p id="login-error" class="login-error" role="alert"></p>
+      <button class="btn btn-primary" type="submit">Sign in</button>
+    </form>
+  </div>
+
+  <div id="app" class="app" hidden>
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-mark" aria-hidden="true"></span>Maré</div>
+      <form class="side-search" id="side-search" role="search">
+        <span class="ico" data-icon="search"></span>
+        <input type="search" name="q" placeholder="Search" aria-label="Search your library">
+      </form>
+      <nav class="side-nav" aria-label="Main">
+        <a href="#/home" data-nav="home"><span class="ico" data-icon="home"></span>Home</a>
+        <a href="#/search" data-nav="search" class="only-mobile"><span class="ico" data-icon="search"></span>Search</a>
+        <p class="side-label">Library</p>
+        <a href="#/albums" data-nav="albums"><span class="ico" data-icon="album"></span>Albums</a>
+        <a href="#/artists" data-nav="artists"><span class="ico" data-icon="artist"></span>Artists</a>
+        <a href="#/songs" data-nav="songs"><span class="ico" data-icon="song"></span>Songs</a>
+        <a href="#/favorites" data-nav="favorites"><span class="ico" data-icon="heart"></span>Favorites</a>
+        <a href="#/playlists" data-nav="playlists"><span class="ico" data-icon="playlist"></span>Playlists</a>
+      </nav>
+      <div class="side-playlists" id="side-playlists"></div>
+      <a class="side-logout" href="#/settings" data-nav="settings"><span class="ico" data-icon="settings"></span>Settings</a>
+    </aside>
+
+    <main class="main" id="main" tabindex="-1"></main>
+
+    <footer class="player" id="player" aria-label="Player">
+      <div class="p-now" data-act="open-np" role="button" tabindex="0" aria-label="Open Now Playing">
+        <img class="p-art" alt="">
+        <div class="p-meta"><div class="p-title">Not playing</div><div class="p-artist"></div></div>
+      </div>
+      <div class="p-center">
+        <div class="p-controls">
+          <button class="icon-btn p-shuffle" data-act="shuffle" aria-label="Shuffle"></button>
+          <button class="icon-btn" data-act="prev" aria-label="Previous"></button>
+          <button class="icon-btn p-toggle" data-act="toggle" aria-label="Play"></button>
+          <button class="icon-btn" data-act="next" aria-label="Next"></button>
+          <button class="icon-btn p-repeat" data-act="repeat" aria-label="Repeat"></button>
+        </div>
+        <div class="p-scrub">
+          <span class="p-cur">0:00</span>
+          <input type="range" class="scrubber" min="0" max="1000" value="0" aria-label="Seek">
+          <span class="p-dur">0:00</span>
+        </div>
+      </div>
+      <div class="p-right">
+        <button class="icon-btn p-heart" data-act="star-current" aria-label="Favorite"></button>
+        <button class="icon-btn" data-act="open-queue" aria-label="Up Next"></button>
+        <span class="ico vol-ico" data-icon="volume"></span>
+        <input type="range" class="volume" min="0" max="100" value="100" aria-label="Volume">
+      </div>
+      <button class="icon-btn p-mini-toggle" data-act="toggle" aria-label="Play"></button>
+      <button class="icon-btn p-mini-next" data-act="next" aria-label="Next"></button>
+      <div class="p-mini-progress"><span></span></div>
+    </footer>
+
+    <nav class="tabbar" aria-label="Tabs">
+      <a href="#/home" data-nav="home"><span class="ico" data-icon="home"></span>Home</a>
+      <a href="#/library" data-nav="library"><span class="ico" data-icon="library"></span>Library</a>
+      <a href="#/search" data-nav="search"><span class="ico" data-icon="search"></span>Search</a>
+    </nav>
+  </div>
+
+  <section id="np" class="np" hidden aria-label="Now Playing">
+    <div class="np-bg"><img alt=""></div>
+    <div class="np-inner">
+      <header class="np-top">
+        <button class="icon-btn np-close" data-act="close-np" aria-label="Close Now Playing"></button>
+        <div class="np-tabs">
+          <button class="np-tab np-tab-art" data-act="np-view" data-view="art">Playing</button>
+          <button class="np-tab" data-act="np-view" data-view="lyrics">Lyrics</button>
+          <button class="np-tab" data-act="np-view" data-view="queue">Up Next</button>
+        </div>
+        <button class="icon-btn np-more" data-act="menu-current" aria-label="More"></button>
+      </header>
+      <div class="np-body">
+        <div class="np-art-wrap"><img class="np-art" alt=""></div>
+        <div class="np-queue" id="np-queue"></div>
+        <div class="np-lyrics" id="np-lyrics"></div>
+      </div>
+      <div class="np-controls">
+        <div class="np-meta">
+          <div class="np-text">
+            <div class="np-title"></div>
+            <a class="np-artist" href="#"></a>
+          </div>
+          <button class="icon-btn np-heart" data-act="star-current" aria-label="Favorite"></button>
+        </div>
+        <input type="range" class="scrubber np-scrub" min="0" max="1000" value="0" aria-label="Seek">
+        <div class="np-times"><span class="p-cur">0:00</span><button class="np-quality qbadge" data-act="quality-info" hidden></button><span class="p-dur">0:00</span></div>
+        <div class="np-buttons">
+          <button class="icon-btn p-shuffle" data-act="shuffle" aria-label="Shuffle"></button>
+          <button class="icon-btn np-big" data-act="prev" aria-label="Previous"></button>
+          <button class="icon-btn np-big np-play p-toggle" data-act="toggle" aria-label="Play"></button>
+          <button class="icon-btn np-big" data-act="next" aria-label="Next"></button>
+          <button class="icon-btn p-repeat" data-act="repeat" aria-label="Repeat"></button>
+        </div>
+        <div class="np-volume">
+          <span class="ico" data-icon="volumeLow"></span>
+          <input type="range" class="volume" min="0" max="100" value="100" aria-label="Volume">
+          <span class="ico" data-icon="volume"></span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div id="menu" class="menu" hidden role="menu"></div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="app.js"></script>
+  <script src="discover.js"></script>
+  <script src="extras.js"></script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+#!/bin/bash
+if [[ $1 == restart ]]; then
+  [[ -f /tmp/fcaddy.pid ]] && kill "$(cat /tmp/fcaddy.pid)" 2>/dev/null; sleep 0.5
+  nohup caddy run --config /etc/caddy/Caddyfile --adapter caddyfile >/tmp/caddy.out 2>&1 &
+  echo $! > /tmp/fcaddy.pid; sleep 1
+fi
+exit 0

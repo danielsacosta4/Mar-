@@ -1,0 +1,11 @@
+#!/bin/bash
+# fake pct: the "container" is this machine
+echo "pct $*" >> /tmp/fakepct.log
+case $1 in
+  create) id=$2; shift 2; tags=""; while [[ $# -gt 0 ]]; do [[ $1 == --tags ]] && tags=$2; [[ $1 == --hostname ]] && hn=$2; shift; done
+          printf 'hostname: %s\ntags: %s\n' "$hn" "$tags" > /etc/pve/lxc/$id.conf ;;
+  start) ;;
+  status) [[ -f /etc/pve/lxc/$2.conf ]] && echo "status: running" || { echo "Configuration file does not exist" >&2; exit 2; } ;;
+  push) mkdir -p "$(dirname "$4")"; cp "$3" "$4" ;;
+  exec) shift 3; "$@" ;;
+esac

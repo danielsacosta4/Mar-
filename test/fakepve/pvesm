@@ -1,0 +1,3 @@
+#!/bin/bash
+if [[ $* == *rootdir* ]]; then printf 'Name Type Status Total Used Available %%\nlocal-lvm lvmthin active 1 1 1 1\nnvme lvmthin active 1 1 1 1\n'
+else printf 'Name Type Status Total Used Available %%\nlocal dir active 1 1 1 1\n'; fi
