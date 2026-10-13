@@ -72,7 +72,7 @@ function albumQuality(songs) {
   return null;
 }
 
-// What you're hearing, in the player bar and Now Playing: "FLAC 24/96", or "MP3 320 · from FLAC 24/96" when converting.
+// What you're hearing, in the player bar and Now Playing: "FLAC 24/96", or "Opus 128 · from FLAC 24/96" when converting.
 const fileLabel = (s) => {
   const fmt = String(s.suffix || '').toUpperCase();
   if (s.bitDepth && s.samplingRate) return `${fmt} ${s.bitDepth}/${+(s.samplingRate / 1000).toFixed(1)}`;
@@ -81,7 +81,7 @@ const fileLabel = (s) => {
 const Quality = {
   sync(s) {
     const q = qualityOf(s);
-    const kbps = QUALITY[Prefs.get('quality')];
+    const spec = qualitySpec(Prefs.get('quality'));
     const conv = !!s && Player.transcodes(s);
     const offline = s && Offline.hasSong(s.id);
     $$('.np-quality, .p-quality').forEach((el) => {
@@ -89,16 +89,20 @@ const Quality = {
       el.hidden = false;
       const base = el.classList.contains('np-quality') ? 'np-quality' : 'p-quality';
       el.className = `${base} qbadge ${conv ? 'lossy conv' : q.cls}`;
-      el.innerHTML = conv ? esc(`MP3 ${kbps} · from ${fileLabel(s)}`) : `${badgeInner({ ...q, label: fileLabel(s) })}${offline ? ' · downloaded' : ''}`;
-      el.title = conv ? `Converted to MP3 ${kbps} kbps from the original (${q.detail}). Click to change.` : `${q.detail}. Click to change the streaming quality.`;
+      el.innerHTML = conv ? esc(`${specName(spec)} · from ${fileLabel(s)}`) : `${badgeInner({ ...q, label: fileLabel(s) })}${offline ? ' · downloaded' : ''}`;
+      el.title = conv ? `Converted to ${specName(spec)} kbps from the original (${q.detail}). Click to change.` : `${q.detail}. Click to change the streaming quality.`;
     });
   },
   // Quick picker; changing it applies to the song that's playing straight away.
   pick(anchor) {
     const cur = Prefs.get('quality');
     const s = Player.current();
-    const opts = [['original', `Original${s ? ` (${fileLabel(s)})` : ''}`], ['high', 'MP3 320 kbps'], ['normal', 'MP3 192 kbps'], ['low', 'MP3 128 kbps (data saver)']];
-    Menu.open(anchor, opts.map(([k, l]) => ({ key: 'q-' + k, label: `${k === cur ? '✓ ' : '\u2003 '}${l}`, run: () => { Player.setQuality(k); toast(k === 'original' ? 'Playing the original files' : `Streaming as ${l}`); } })));
+    const opts = [['original', `Original${s ? ` (${fileLabel(s)})` : ''}`], ['opus128', 'Opus 128 kbps'], ['opus96', 'Opus 96 kbps'],
+      ['high', 'MP3 320 kbps'], ['normal', 'MP3 192 kbps'], ['low', 'MP3 128 kbps']];
+    Menu.open(anchor, opts.map(([k, l]) => ({ key: 'q-' + k, label: `${k === cur ? '✓ ' : '\u2003 '}${l}`, run: () => {
+      Player.setQuality(k);
+      toast(k === 'original' ? 'Playing the original files' : `Streaming as ${specName(qualitySpec(k))} kbps`);
+    } })));
   },
 };
 
@@ -281,7 +285,7 @@ const Offline = {
     const job = { done: 0, total: songs.length, bytes: 0 };
     this.jobs.set(key, job);
     this.paint(key);
-    const kbps = Prefs.get('dlQuality') === 'high' ? 320 : null;
+    const dq = qualitySpec(Prefs.get('dlQuality'));
     const audio = await caches.open(AUDIO_CACHE), art = await caches.open(ART_CACHE);
     const db = this.db();
     db.items[key] = { kind, id, name, artist, coverArt, songIds: songs.map((s) => s.id), date: Date.now(), partial: true };
@@ -296,7 +300,7 @@ const Offline = {
         const s = songs[i++];
         if (!(await audio.match(`/offline/song/${s.id}`))) {
           try {
-            const r = await fetch(API.stream(s.id, kbps ? { format: 'mp3', maxBitRate: kbps } : null));
+            const r = await fetch(API.stream(s.id, dq ? { format: dq.format, maxBitRate: dq.kbps } : null));
             if (!r.ok) throw new Error(r.status);
             const blob = await r.blob();
             job.bytes += blob.size;
@@ -569,10 +573,10 @@ songMenu = function (anchor, s) {
         <label class="switch"><input type="checkbox" data-pref="smartFade" ${Prefs.get('smartFade') ? 'checked' : ''} ${locked ? 'disabled' : ''}><span></span></label></div>
       <div class="set-row"><div><h3>Volume levelling</h3><p>${locked ? 'Not available in this browser (iPhone and iPad).' : 'Evens out loud and quiet songs using ReplayGain tags. Automatic uses album levels when you play an album and song levels otherwise.'}</p></div>
         <div class="set-actions"><select class="select" data-pref="rg" ${locked ? 'disabled' : ''}>${[['auto', 'Automatic'], ['track', 'Song'], ['album', 'Album'], ['off', 'Off']].map(([v, l]) => `<option value="${v}"${Prefs.get('rg') === v ? ' selected' : ''}>${l}</option>`).join('')}</select></div></div>
-      <div class="set-row"><div><h3>Streaming quality</h3><p>Original plays your files as they are (lossless and hi-res stay intact). Lower settings convert to MP3 to save data on mobile.</p></div>
-        <div class="set-actions"><select class="select" data-pref="quality">${[['original', 'Original'], ['high', 'High (MP3 320)'], ['normal', 'Normal (MP3 192)'], ['low', 'Data saver (MP3 128)']].map(([v, l]) => `<option value="${v}"${Prefs.get('quality') === v ? ' selected' : ''}>${l}</option>`).join('')}</select></div></div>
-      <div class="set-row"><div><h3>Download quality</h3><p>Original keeps lossless files (large: an album can be 1–2 GB in hi-res). High saves MP3 320 copies.</p></div>
-        <div class="set-actions"><select class="select" data-pref="dlQuality">${[['high', 'High (MP3 320)'], ['original', 'Original']].map(([v, l]) => `<option value="${v}"${Prefs.get('dlQuality') === v ? ' selected' : ''}>${l}</option>`).join('')}</select></div></div>
+      <div class="set-row"><div><h3>Streaming quality</h3><p>Original plays your files as they are (lossless and hi-res stay intact). The others are converted by Navidrome to save data on mobile: Opus sounds as good as MP3 at about half the size and keeps albums gapless${CAN_OPUS ? '' : ' (this device can\'t play Opus, so it gets MP3 instead)'}.</p></div>
+        <div class="set-actions"><select class="select" data-pref="quality">${[['original', 'Original'], ['opus128', 'Opus 128'], ['opus96', 'Opus 96'], ['high', 'MP3 320'], ['normal', 'MP3 192'], ['low', 'MP3 128']].map(([v, l]) => `<option value="${v}"${Prefs.get('quality') === v ? ' selected' : ''}>${l}</option>`).join('')}</select></div></div>
+      <div class="set-row"><div><h3>Download quality</h3><p>Original keeps lossless files (large: an album can be 1–2 GB in hi-res). Opus 128 is about half the size of MP3 320 at the same sound quality.</p></div>
+        <div class="set-actions"><select class="select" data-pref="dlQuality">${[['opus128', 'Opus 128'], ['high', 'MP3 320'], ['original', 'Original']].map(([v, l]) => `<option value="${v}"${Prefs.get('dlQuality') === v ? ' selected' : ''}>${l}</option>`).join('')}</select></div></div>
       <h2 class="set-group">Account</h2>`);
     const rng = $('[data-pref="crossfade"]', box);
     const paint = () => rng.style.setProperty('--p', (rng.value / 12) * 100 + '%');

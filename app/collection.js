@@ -150,9 +150,9 @@ function specSheet(songs) {
   if (bytes) rows.push(['Size', fmtSize(bytes)]);
   const tagged = songs.filter(hasGain).length;
   rows.push(['Volume tags', tagged === songs.length ? 'Tagged' : tagged ? `Partly tagged (${tagged} of ${songs.length})` : 'Not tagged', tagged < songs.length]);
-  const kbps = QUALITY[Prefs.get('quality')];
-  const lossless = songs.some(isLossless);
-  rows.push(['You hear', kbps && lossless ? `Converted to MP3 ${kbps} kbps (streaming setting)` : 'The original files, untouched']);
+  const spec = qualitySpec(Prefs.get('quality'));
+  const conv = spec && songs.some((s) => Player.transcodes(s));
+  rows.push(['You hear', conv ? `Converted to ${specName(spec)} kbps (streaming setting)` : 'The original files, untouched']);
   return `<section class="spec"><div class="label">Your copy</div><dl>${rows.map(([k, v, warn]) =>
     `<div><dt>${esc(k)}</dt><dd${warn ? ' class="warn"' : ''}>${esc(v)}</dd></div>`).join('')}</dl></section>`;
 }

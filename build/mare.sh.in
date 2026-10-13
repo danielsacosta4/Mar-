@@ -10,9 +10,9 @@
 #  Next runs : finds the Maré container and updates it in place
 #              (your settings are kept).
 #
-#  The app is inside this file. Its typefaces are downloaded from the
-#  Maré repository on GitHub (they don't fit in a one-line install), the
-#  Debian template and Caddy come from their own repositories.
+#  The app itself is downloaded from the Maré repository on GitHub (the
+#  same version as this script); the Debian template and Caddy come from
+#  their own repositories.
 # ============================================================================
 set -Eeuo pipefail
 # The new container has no locales yet; use the built-in one so apt/perl stay quiet.
@@ -21,9 +21,9 @@ unset LANGUAGE
 
 MARE_VERSION="__VERSION__"
 TAG="mare"
-# Where the typefaces come from (override for testing).
-MARE_ASSETS=${MARE_ASSETS:-https://raw.githubusercontent.com/danielsacosta4/Mar-/main/app}
-FONTS=(archivo.woff2 newsreader.woff2 newsreader-italic.woff2)
+# Where the app comes from: the repository as a tarball (override for testing).
+MARE_SOURCE=${MARE_SOURCE:-https://codeload.github.com/danielsacosta4/Mar-/tar.gz/refs/heads/main}
+APP_VERSION=
 
 # ---------- look ----------
 B=$'\e[1m'; D=$'\e[2m'; G=$'\e[32m'; R=$'\e[31m'; Y=$'\e[33m'; C=$'\e[36m'; N=$'\e[0m'
@@ -57,23 +57,19 @@ banner() {
   printf '\n'
 }
 
-# ---------- payload ----------
-extract_payload() {   # writes the app files to $1
-  local line
-  line=$(grep -an '^__MARE_PAYLOAD__$' "$SELF" | tail -1 | cut -d: -f1) || true
-  [[ -n $line ]] || die "This copy of the script is incomplete (the app files at the end are missing). Copy the whole file again."
+# ---------- the app ----------
+fetch_app() {   # fetch_app DIR -> the app's files in DIR, APP_VERSION set
+  local tgz
+  tgz=$(mktemp)
+  curl -fsSL -m 120 --retry 3 "$MARE_SOURCE" -o "$tgz" \
+    || { rm -f "$tgz"; die "Couldn't download Maré from GitHub. Check the host's internet access and try again; nothing was changed."; }
   mkdir -p "$1"
-  tail -n +"$((line + 1))" "$SELF" | tr -d '\r' | base64 -d | xz -dc | tar x -C "$1" \
-    || die "The app files at the end of the script are damaged. Copy the whole file again."
-  [[ -f $1/index.html ]] || die "The app files inside the script are incomplete."
-}
-
-fetch_fonts() {   # fetch_fonts DIR -> downloads the typefaces into DIR/fonts; 1 if any failed
-  local f
-  mkdir -p "$1/fonts"
-  for f in "${FONTS[@]}"; do
-    curl -fsSL -m 30 --retry 2 "$MARE_ASSETS/fonts/$f" -o "$1/fonts/$f" 2>/dev/null || { rm -rf "$1/fonts"; return 1; }
-  done
+  tar xzf "$tgz" -C "$1" --strip-components=2 --wildcards '*/app/*' 2>/dev/null \
+    || { rm -f "$tgz"; die "The download from GitHub was damaged. Try again; nothing was changed."; }
+  rm -f "$tgz"
+  [[ -f $1/index.html && -f $1/app.js ]] || die "The download from GitHub is missing the app. Try again; nothing was changed."
+  APP_VERSION=$(grep -o "MARE_VERSION = '[^']*'" "$1/app.js" | head -1 | cut -d"'" -f2)
+  APP_VERSION=${APP_VERSION:-$MARE_VERSION}
 }
 
 caddyfile() {   # caddyfile NAVIDROME_URL
@@ -100,6 +96,17 @@ caddyfile() {   # caddyfile NAVIDROME_URL
 		}
 	}
 
+	# MusicBrainz (discographies), with the User-Agent MusicBrainz asks clients to send.
+	handle_path /mb/* {
+		rewrite * /ws/2{uri}
+		reverse_proxy https://musicbrainz.org {
+			header_up Host musicbrainz.org
+			header_up User-Agent "Mare/${MARE_VERSION} ( https://github.com/danielsacosta4/Mar- )"
+			header_up -X-Forwarded-For
+			header_up -X-Real-IP
+		}
+	}
+
 	# ListenBrainz API (personal playlists, stats, radio), so the browser only talks to this server.
 	handle_path /lb/* {
 		reverse_proxy https://api.listenbrainz.org {
@@ -112,7 +119,7 @@ caddyfile() {   # caddyfile NAVIDROME_URL
 	# The app.
 	handle {
 		root * /var/www/mare
-		@shell path / /index.html /app.js /discover.js /extras.js /collection.js /sw.js /app.css /manifest.webmanifest
+		@shell path / /index.html *.js *.css /manifest.webmanifest
 		header @shell Cache-Control "no-cache"
 		@fonts path /fonts/*
 		header @fonts Cache-Control "public, max-age=2592000"
@@ -139,11 +146,9 @@ wait_for_network() {
 push_app() {   # push_app CTID NAVIDROME_URL
   local id=$1 nav=$2 tmp
   tmp=$(mktemp -d)
-  extract_payload "$tmp/www"
-  fetch_fonts "$tmp/www" || warn "Couldn't download Maré's typefaces from GitHub; keeping the ones already installed (or using the system fonts)."
-  tar czf "$tmp/mare.tgz" -C "$tmp/www" .
+  tar czf "$tmp/mare.tgz" -C "$APPDIR" .
   caddyfile "$nav" >"$tmp/Caddyfile"
-  printf 'NAVIDROME=%q\nMARE_VERSION=%q\n' "$nav" "$MARE_VERSION" >"$tmp/mare.conf"
+  printf 'NAVIDROME=%q\nMARE_VERSION=%q\n' "$nav" "$APP_VERSION" >"$tmp/mare.conf"
   pct push "$id" "$tmp/mare.tgz" /tmp/mare.tgz
   pct push "$id" "$tmp/Caddyfile" /etc/caddy/Caddyfile
   pct push "$id" "$tmp/mare.conf" /etc/mare.conf
@@ -151,7 +156,6 @@ push_app() {   # push_app CTID NAVIDROME_URL
     set -e
     rm -rf /var/www/mare.new && mkdir -p /var/www/mare.new
     tar xzf /tmp/mare.tgz -C /var/www/mare.new && rm -f /tmp/mare.tgz
-    if [ ! -d /var/www/mare.new/fonts ] && [ -d /var/www/mare/fonts ]; then cp -r /var/www/mare/fonts /var/www/mare.new/; fi
     rm -rf /var/www/mare.old
     [ -d /var/www/mare ] && mv /var/www/mare /var/www/mare.old
     mv /var/www/mare.new /var/www/mare && rm -rf /var/www/mare.old
@@ -175,24 +179,18 @@ check_navidrome() {   # check_navidrome CTID URL -> 0 if it answers
 }
 
 # ============================================================================
-# Works both as a file (bash mare.sh) and as a one-liner (bash -c "$(curl -fsSL URL)").
-if [[ -n ${BASH_SOURCE[0]:-} && -f ${BASH_SOURCE[0]} ]]; then
-  SELF=$(readlink -f "${BASH_SOURCE[0]}")
-elif [[ -n ${BASH_EXECUTION_STRING:-} ]]; then
-  SELF=$(mktemp)
-  trap 'rm -f "$SELF"' EXIT
-  printf '%s\n' "$BASH_EXECUTION_STRING" >"$SELF"
-else
-  die "Start it with:  bash -c \"\$(curl -fsSL <link to mare.sh>)\"   or   bash mare.sh"
-fi
 banner
 
 command -v pct >/dev/null && command -v pveam >/dev/null \
   || die "Run this on the Proxmox host shell (Datacenter → your node → Shell), not inside a container."
 [[ $EUID -eq 0 ]] || die "Run as root."
 
-# Test the payload before touching anything.
-TMPCHK=$(mktemp -d); extract_payload "$TMPCHK"; rm -rf "$TMPCHK"
+# Download the app before touching anything.
+step "Downloading Maré"
+APPDIR=$(mktemp -d)
+trap 'rm -rf "$APPDIR"' EXIT
+fetch_app "$APPDIR"
+ok "Maré v$APP_VERSION downloaded"
 
 # ---------- existing install? ----------
 EXISTING=""
@@ -206,7 +204,7 @@ done
 if [[ -n $EXISTING ]]; then
   HN=$(awk -F': ' '/^hostname:/{print $2}' "/etc/pve/lxc/$EXISTING.conf")
   step "Found Maré in container $EXISTING ($HN)"
-  if yesno "Update it to v$MARE_VERSION?" Y; then
+  if yesno "Update it to v$APP_VERSION?" Y; then
     [[ $(pct status "$EXISTING") == *running* ]] || { pct start "$EXISTING"; sleep 3; }
     NAV=$(pct exec "$EXISTING" -- sh -c '. /etc/mare.conf 2>/dev/null; printf %s "$NAVIDROME"' || true)
     if [[ -z $NAV ]] || yesno "Change the Navidrome address (now: ${NAV:-not set})?" N; then
@@ -215,7 +213,7 @@ if [[ -n $EXISTING ]]; then
     fi
     step "Updating"
     push_app "$EXISTING" "$NAV"
-    ok "Maré v$MARE_VERSION installed"
+    ok "Maré v$APP_VERSION installed"
     check_navidrome "$EXISTING" "$NAV" && ok "Navidrome answers" || warn "Navidrome didn't answer at $NAV"
     IP=$(ct_ip "$EXISTING")
     printf '\n  %s\n  Open: http://%s\n\n' "${G}${B}Done.${N}" "${IP:-<container IP>}"
@@ -291,7 +289,7 @@ pct exec "$CTID" -- sh -c 'export DEBIAN_FRONTEND=noninteractive
   apt-get -y -qq upgrade >/dev/null 2>&1 || true'
 ok "Caddy installed"
 
-step "Installing Maré v$MARE_VERSION"
+step "Installing Maré v$APP_VERSION"
 push_app "$CTID" "$NAV"
 ok "App installed and Caddy configured"
 
@@ -320,4 +318,3 @@ cat <<EOF
 
 EOF
 exit 0
-__MARE_PAYLOAD__
