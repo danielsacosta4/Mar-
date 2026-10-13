@@ -134,6 +134,11 @@ so every patch is in place before the first render (offline, the ping fails fast
   of Home, above On This Day; needs ≥3 library albums) and `#/moments` lists every slot (current first, "Now" tag, thin
   slots named in one note). "Play this moment" = the slot's top songs matched to the library, shuffled. `Moments.now` can be
   overridden (tests fake the time). Note `store` prefixes keys with `mare.`.
+- **Scan library (1.5.7)**: Settings → Library → "Scan library" calls Subsonic `startScan` (Navidrome may require an admin
+  account; code 50 → explained in a toast), follows `getScanStatus` every 1.5 s showing the song count, then busts the API
+  cache, re-reads the Catalog (its `lastScan` changed) and re-renders. Reports "N new songs". (`Scan` in collection.js.)
+  The Home "Recently Added" shelf (`getAlbumList2 type=newest`) already existed. No downloader: the owner asked for a Qobuz
+  downloader (qobuz-dl / SpotiFLAC style); declined on purpose, don't build it.
 - **Lyrics**: OpenSubsonic `getLyricsBySongId` (synced first), fallback `getLyrics`.
 - **Downloads** (`extras.js` + `sw.js`): songs fetched and stored in Cache Storage under `/offline/song/<id>`,
   covers under `/offline/art/<id>`; the service worker serves them (with HTTP Range) for any `/rest/stream?id=`.
@@ -191,6 +196,7 @@ uses `LANG=C.UTF-8` to avoid locale noise.
 - **1.5.4**: random mid-song skips. A stream cut short (proxy/network) ends "normally" mid-song, so `onEnded` now resumes the song where it stopped if it ends >3 s before its tagged length (up to 3 times, only with progress); `Player.note()` keeps a Playback log (Settings) of why each song changed.
 - **1.5.5**: lyrics panel on phones: it reserved 40% of the screen height as bottom padding, which made it taller than its row and spill over the title; now 16vh (empty-state margins smaller too).
 - **1.5.6**: Moments (see above): Right Now row on Home, Moments page, "Play this moment".
+- **1.5.7**: Scan library button in Settings.
 
 ## Roadmap (agreed with the owner; each needs a plan + go-ahead first)
 

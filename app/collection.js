@@ -427,3 +427,54 @@ actions['coll-reread'] = async () => { await Catalog.build(await API.call('getSc
 
 window.Catalog = Catalog;
 window.Rating = Rating;
+
+
+/* ================= Scan library (1.5.7) ================= */
+// Asks Navidrome to look for new files, follows the scan, then refreshes what Maré knows about the library.
+
+const Scan = {
+  busy: false,
+  status() { return API.call('getScanStatus').then((r) => r.scanStatus || {}).catch(() => null); },
+  async run(btn) {
+    if (this.busy) return;
+    this.busy = true;
+    const label = btn?.textContent;
+    const set = (t) => { if (btn?.isConnected) btn.textContent = t; };
+    try {
+      let st = await this.status();
+      const before = st?.count ?? null;
+      if (!st?.scanning) { set('Starting…'); st = (await API.call('startScan')).scanStatus || st; }
+      const t0 = Date.now();
+      while (st?.scanning && Date.now() - t0 < 20 * MIN) {
+        set(st.count ? `Scanning… ${Number(st.count).toLocaleString()} songs` : 'Scanning…');
+        await sleep(1500);
+        st = await this.status();
+      }
+      API.bust();
+      Catalog.ensure().catch(() => {});
+      const now = st?.count;
+      const diff = before != null && now != null ? now - before : 0;
+      toast(diff > 0 ? `Scan finished: ${plural(diff, 'new song')}. ${Number(now).toLocaleString()} in your library.`
+        : diff < 0 ? `Scan finished: ${plural(-diff, 'song')} no longer found. ${Number(now).toLocaleString()} in your library.`
+        : `Scan finished. Nothing new found${now != null ? `: ${Number(now).toLocaleString()} songs.` : '.'}`);
+      UI.render();
+    } catch (e) {
+      toast(e.code === 50 ? 'Navidrome only lets an admin account start a scan.' : `Couldn't scan: ${e.message || 'unknown error'}`);
+    } finally { this.busy = false; set(label); }
+  },
+};
+actions['scan-library'] = (el) => Scan.run(el);
+
+{
+  const orig = View.settings;
+  View.settings = async (main, ...rest) => {
+    await orig(main, ...rest);
+    const box = $('.settings', main);
+    if (!box || $('[data-act="scan-library"]', box)) return;
+    box.insertAdjacentHTML('afterbegin', `<h2 class="set-group">Library</h2>
+      <div class="set-row"><div><h3>Scan library</h3><p>Look for new music in your folders. Added albums appear in Maré as soon as Navidrome finishes.</p></div>
+        <div class="set-actions"><button class="btn" data-act="scan-library">Scan library</button></div></div>`);
+  };
+}
+
+window.Scan = Scan;
