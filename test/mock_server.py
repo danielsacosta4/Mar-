@@ -48,6 +48,7 @@ class H(SimpleHTTPRequestHandler):
     def do_GET(s):
         u=urlparse(s.path)
         if u.path.startswith('/lb/1/'): return s.lb(u)
+        if u.path.startswith('/mb/'): return s.mb(u)
         if not u.path.startswith('/rest/'): return super().do_GET()
         m=u.path[6:].replace('.view',''); q={k:v[0] for k,v in parse_qs(u.query).items()}
         log.append(m)
@@ -183,4 +184,51 @@ def lb(s,u):
         return s.send_json({"payload":{"jspf":{"playlist":{"track":tr}},"feedback":[]}})
     s.send_response(404); s.end_headers()
 H.lb=lb
+# Listening history for the time machine: 2024-01-01 .. yesterday, a few plays a day (Sal & Pimenta only from 2025).
+import datetime as _dt
+LISTENS=[]
+_r=random.Random(7); _d=_dt.datetime(2024,1,1,12); _end=_dt.datetime.now()-_dt.timedelta(days=1)
+while _d<_end:
+    for k in range(_r.randint(0,5)):
+        x=_r.choice(songs[:40]+songs[:16])
+        if x['artist']=='Sal & Pimenta' and _d.year<2025: continue
+        LISTENS.append({"listened_at":int((_d+_dt.timedelta(minutes=17*k)).timestamp()),"track_metadata":{"artist_name":x['artist'],"track_name":x['title'],"release_name":x['album'],"additional_info":{"duration_ms":x['duration']*1000*4}}})
+    if _d.month==10 and _d.day==13 and _d.year==2025:
+        for k in range(6): x=albums[2]['songs'][k]; LISTENS.append({"listened_at":int((_d+_dt.timedelta(hours=2,minutes=5*k)).timestamp()),"track_metadata":{"artist_name":x['artist'],"track_name":x['title'],"release_name":x['album']}})
+    _d+=_dt.timedelta(days=1)
+LISTENS.sort(key=lambda l:-l['listened_at'])
+_lb=lb
+def lb2(s,u):
+    p=u.path[6:]; q={k:v[0] for k,v in parse_qs(u.query).items()}
+    if p.endswith('/listens'):
+        mx=int(q.get('max_ts','9999999999')); n=int(q.get('count','25'))
+        page=[l for l in LISTENS if l['listened_at']<mx][:n]; log.append('LB listens '+str(mx))
+        return s.send_json({"payload":{"count":len(page),"listens":page}})
+    if p.endswith('/listening-activity') and q.get('range')=='all_time':
+        ys={}
+        for l in LISTENS: y=_dt.datetime.fromtimestamp(l['listened_at']).year; ys[y]=ys.get(y,0)+1
+        return s.send_json({"payload":{"range":"all_time","listening_activity":[{"time_range":str(y),"listen_count":c,"from_ts":0,"to_ts":0} for y,c in sorted(ys.items())]}})
+    if p.endswith('/fresh_releases'):
+        today=_dt.date.today()
+        def rel(name,artist,days,typ='Album',rg=None): return {"release_name":name,"artist_credit_name":artist,"release_date":str(today+_dt.timedelta(days=days)),
+            "release_group_mbid":rg or ('rg-'+name.lower().replace(' ','-')),"release_mbid":'rel-'+name.lower().replace(' ','-'),"release_group_primary_type":typ,"caa_id":None,"caa_release_mbid":None,"confidence":1}
+        return s.send_json({"payload":{"releases":[rel("Saudade","Marta Fado",-5),rel("Fado Novo","Marta Fado",-12),rel("Glass Harbor II","Sal & Pimenta",-30,"EP"),
+            rel("Lua Cheia","Lua Azul",21),rel("Northern Nights","The Northern Lights",-60)],"user_id":"modren12"}})
+    return _lb(s,u)
+H.lb=lb2
+def mb(s,u):
+    p=u.path[4:]; q={k:v[0] for k,v in parse_qs(u.query).items()}; log.append('MB '+p+' '+u.query)
+    if p=='artist':
+        name=q['query'].split('"')[1]
+        return s.send_json({"artists":[{"id":"mb-"+a[0],"name":a[1],"score":100} for a in artists if a[1]==name]})
+    if p=='release-group':
+        aid=q['artist'][3:]; own=[a for a in albums if a['artistId']==aid]
+        rgs=[{"id":"rg-"+a['id'],"title":a['name']+(" (Deluxe Edition)" if i==0 else ""),"primary-type":"Album","secondary-types":[],"first-release-date":str(a['year'])} for i,a in enumerate(own)]
+        rgs+=[{"id":"rg-miss1-"+aid,"title":"Fado Novo" if aid=='ar3' else "Lost Tapes","primary-type":"Album","secondary-types":[],"first-release-date":"2001-05-04"},
+              {"id":"rg-miss2-"+aid,"title":"Small Hours","primary-type":"EP","secondary-types":[],"first-release-date":"2015"},
+              {"id":"rg-live-"+aid,"title":"Live at the Coliseu","primary-type":"Album","secondary-types":["Live"],"first-release-date":"2010"},
+              {"id":"rg-future-"+aid,"title":"Next Year","primary-type":"Album","secondary-types":[],"first-release-date":"2099-01-01"}]
+        return s.send_json({"release-group-count":len(rgs),"release-groups":rgs})
+    s.send_response(404); s.end_headers()
+H.mb=mb
 ThreadingHTTPServer(('127.0.0.1',8765),H).serve_forever()

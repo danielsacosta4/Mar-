@@ -34,29 +34,31 @@ app/            The web app (static files, no framework, no build step needed to
   index.html    Shell: sidebar, main, player bar, Now Playing overlay, tab bar
   app.css       All styles, "Sleeve" design (light "paper" / dark "night edition" via prefers-color-scheme,
                 mobile at ≤760px, NP stacks at ≤1000px)
-  fonts/        Archivo (condensed display + UI) and Newsreader (serif), latin subsets, OFL. NOT embedded in
-                mare.sh: the installer downloads them from GitHub (main branch) at install time.
+  fonts/        Archivo (condensed display + UI) and Newsreader (serif), latin subsets, OFL.
   app.js        Core: API client (token auth, MD5), song registry, Player (2-element engine), views, router, UI
   discover.js   Round 2: ListenBrainz client, library matching, Radio, Lyrics, Home discovery rows, Settings view
   extras.js     Round 3: quality badges, playlist editing, drag-to-reorder, offline downloads, A–Z artists,
                 playback settings. Wraps/extends functions from app.js and discover.js.
   collection.js Round 4: library Catalog (per-album quality summary), quality labels on cards, album spec sheet,
-                Collection page (#/collection), star ratings (setRating), Top Rated / 5-star mix.
+                Collection page (#/collection), star ratings (setRating), Top Rated / 5-star mix, context menus.
+  shopping.js   Round 5a: MusicBrainz client (MB), discographies (Disco) on artist pages, New Releases (#/new, LB
+                fresh releases), Shopping List (#/shopping), "New for You" on Home, Hidden ("Not interested").
+  timemachine.js Round 5b: listening history from LB listens (Listens), "On This Day" on Home, Year in review (#/year/Y).
   sw.js         Service worker: app shell cache, downloaded songs (with Range support) and covers
 build/
-  mare.sh.in    Installer template (bash). __VERSION__ is replaced; the app is appended after __MARE_PAYLOAD__
-  build.sh      build/build.sh <version>  -> writes ./mare.sh (minify -> tar -> xz -> base64)
-  minify.py     Safe minifier (comments + indentation only)
+  mare.sh.in    Installer template (bash). __VERSION__ is replaced. The installer downloads the app from GitHub.
+  build.sh      build/build.sh <version>  -> checks the scripts and versions, writes ./mare.sh
 test/
   mock_server.py  Mock Navidrome (/rest) + ListenBrainz (/lb/1) + static files, port 8765. User demo / secret
   test_*.py       Playwright browser tests (desktop + mobile, light + dark); screenshots to test-output/
-                  (core, discovery, round3 = playlists/downloads/offline, round4 = collection + ratings)
+                  (core, discovery, round3 = playlists/downloads/offline, round4 = collection + ratings + player bar,
+                  round5 = shopping list + time machine; the mock also answers /mb/* like MusicBrainz)
   run.sh          Starts the mock and runs all suites
   fakepve/        Fake pct/pveam/pvesh/pvesm/systemctl to exercise mare.sh without Proxmox
-mare.sh         The built installer; this is what the owner's curl command downloads. Commit it with every release.
+mare.sh         The built installer (~13 KB); this is what the owner's curl command downloads. Commit it with every release.
 ```
 
-Scripts load in order `app.js` → `discover.js` → `extras.js` → `collection.js`; `boot()` waits for DOMContentLoaded
+Scripts load in order `app.js` → `discover.js` → `extras.js` → `collection.js` → `shopping.js` → `timemachine.js`; `boot()` waits for DOMContentLoaded
 so every patch is in place before the first render (offline, the ping fails fast enough to race them). Later files use top-level bindings of earlier ones
 (`API`, `Player`, `UI`, `View`, `actions`, `store`, `register`, `icon`, `STROKE`, …) and patch them by wrapping
 (e.g. `UI.render`, `UI.renderQueue`, `UI.syncPlayer`, `songMenu`, `View.settings`, `API.call`).
@@ -66,8 +68,9 @@ so every patch is in place before the first render (offline, the ping fails fast
 - **Auth**: Subsonic token auth (`t = md5(password + salt)`), session in localStorage `mare.session`.
   `API.base` is empty when served by the Maré container (same origin; Caddy proxies `/rest/*` to Navidrome).
 - **Caddy routes** (written by mare.sh): `/rest/*` → Navidrome (optional BaseUrl rewrite, streaming flush),
-  `/lb/*` → `https://api.listenbrainz.org` (prefix stripped, so the browser never needs CORS), everything else → app
-  with `index.html` fallback. App shell files are served `Cache-Control: no-cache`.
+  `/lb/*` → `https://api.listenbrainz.org` (prefix stripped, so the browser never needs CORS), `/mb/*` →
+  `https://musicbrainz.org/ws/2/*` with a `Mare/<version>` User-Agent (MusicBrainz requires one), everything else → app
+  with `index.html` fallback. App shell files (`/`, `*.js`, `*.css`, manifest) are served `Cache-Control: no-cache`.
 - **Player** (`app.js`): two `Audio` elements. `tick()` (every 100 ms) preloads the next song into the spare element
   ~40 s before the end, then either schedules a precise gapless switch (`advance(i, 0)`) or starts an equal-power
   crossfade. "Keep albums gapless" disables the fade between songs of the same album. If preloading isn't ready,
@@ -111,6 +114,19 @@ so every patch is in place before the first render (offline, the ping fails fast
   and album/artist/playlist cards opens the same menus as the "…" buttons at the pointer (`contextMenuFor` in
   collection.js); cards use `CardMenus`. Home "Top Rated" row = `getAlbumList2 type=highest` (rated only);
   "Play your 5-star songs" (`mix-top`) uses the catalog's rated songs (5★, or 4★+ when fewer than 10).
+- **Shopping list (1.5)**: `MB.get` queues MusicBrainz requests ~1.1 s apart (their rate limit) and retries on 503.
+  Artist MBID = Navidrome's `musicBrainzId` (artist or `getArtistInfo2`) or an exact-name MB search (cached 30 days).
+  Release groups = `type=album|ep`, minus secondary types (live, compilation, soundtrack, remix…) and future dates,
+  cached compactly 7 days. Owned = `sameAlbum()` (normalised names; library title may extend the release title).
+  New releases = LB `user/{u}/fresh_releases?days=90&past&future`, owned via `Match.album`. "Hide" stores the id in
+  localStorage `mare.hidden`. Covers of missing albums come straight from coverartarchive.org. "Qobuz" links go to
+  `qobuz.com/pt-pt/search?q=artist title` (unverified URL format; owner to confirm).
+- **Time machine (1.5)**: `Listens.year(y)` pages through LB `user/{u}/listens?max_ts&count=1000` (max_ts and min_ts
+  can't be combined) and stores a compact summary per year in localStorage `hist.<y>` (finished years forever, the
+  current one for 6 h): plays, durations, every artist (for "new to you" = not in any earlier year), top 60 albums,
+  top 100 songs, months, weekdays, busiest day. Years list = LB listening-activity `range=all_time`. On This Day =
+  listens of today's date 1–5 years back (`Listens.day`, cached a week). Hours are shown only when ≥ half the listens
+  carry a duration ("about"). Names are matched to the library with `Match.album` / `Match.many` / `Match.artist`.
 - **Lyrics**: OpenSubsonic `getLyricsBySongId` (synced first), fallback `getLyrics`.
 - **Downloads** (`extras.js` + `sw.js`): songs fetched and stored in Cache Storage under `/offline/song/<id>`,
   covers under `/offline/art/<id>`; the service worker serves them (with HTTP Range) for any `/rest/stream?id=`.
@@ -121,15 +137,14 @@ so every patch is in place before the first render (offline, the ping fails fast
 ## Building and releasing
 
 1. Change files in `app/` (bump `window.MARE_VERSION` in `app.js` and `VERSION` in `sw.js` together).
-2. `build/build.sh <version>` → new `mare.sh`. Keep it under ~120 KB: the `bash -c "$(curl …)"` one-liner passes
-   the whole script as a single argument and Linux caps that at 128 KiB (currently ~100 KB, so close: the next
-   big addition should move the app itself out of the script, like the fonts). If it ever gets close,
-   switch the install line to download-then-run, or fetch the app from the repo instead of embedding it.
-   The fonts in `app/fonts/` are already fetched this way (`fetch_fonts` in mare.sh.in, from `MARE_ASSETS`, default
-   raw.githubusercontent.com/…/main/app); if the download fails the previous fonts are kept, else system fonts.
+2. `build/build.sh <version>` → new `mare.sh`. Since 1.5 the installer doesn't carry the app: it downloads the
+   repository tarball (`MARE_SOURCE`, default codeload.github.com/…/tar.gz/refs/heads/main), extracts `app/`
+   (fonts included), reads the version from app.js, and only then touches the container; a failed download changes
+   nothing. So a release is live once it's merged to main (the raw mare.sh may lag ~5 min behind GitHub's cache).
 3. `test/run.sh` (mock server + Playwright). Also worth a run of mare.sh with `test/fakepve` on PATH and a `caddy`
    binary available, then pointing the tests at `MARE_URL=http://127.0.0.1/` to test the installed, minified build.
-   Set `MARE_ASSETS=http://127.0.0.1:8765` so the fonts come from the mock server instead of GitHub.
+   Serve a tarball of the working tree for it (`tar czf main.tgz --transform 's,^,Mar--main/,' app …`, then
+   `python3 -m http.server`) and set `MARE_SOURCE=http://127.0.0.1:<port>/main.tgz`.
 4. Commit `app/`, `build/`, `test/` and `mare.sh`; give the owner a commit message.
 
 The installer on a re-run finds the container by its `mare` tag and only replaces the app + Caddyfile
@@ -155,17 +170,21 @@ uses `LANG=C.UTF-8` to avoid locale noise.
   point), fixed-width volume. Right-click / long-press menus everywhere. Seeking while converting no longer restarts the
   song (timeOffset).
 - **1.4.2**: Opus 128 / 96 streaming and Opus 128 downloads, with automatic MP3 fallback on devices without Opus.
+- **1.5.0**: installer downloads the app from GitHub (mare.sh ~13 KB). Shopping list: New Releases (LB fresh releases,
+  in library / not yet), "You have X of Y" + missing albums on artist pages (MusicBrainz), Shopping List page, Hide.
+  Time machine: On This Day on Home, Year in review for any year (top artists/albums/songs, months, weekdays, new
+  artists). `/mb` Caddy route.
 
 ## Roadmap (agreed with the owner; each needs a plan + go-ahead first)
 
 Part 2, "only Maré does this":
-1. **New Releases for You**: new releases from artists the user listens to (ListenBrainz fresh releases),
-   marked as in library / not yet (a Qobuz shopping list).
-2. **Complete the Discography**: owned vs missing albums per artist (MusicBrainz release groups).
-3. **Time machine**: "on this day last year", any-time year in review (ListenBrainz listens/stats).
+1. ~~New Releases for You~~ (1.5). 2. ~~Complete the Discography~~ (1.5). 3. ~~Time machine~~ (1.5).
 4. **Moments**: Home adapts to time of day/week based on real listening.
-5. **Album as a story**: credits, release info, artist background, animated covers.
+5. ~~Album as a story~~: credits, release info, notes, artist profiles done in 1.3; animated covers dropped (none in
+   the owner's files).
 6. **Maré Connect**: handoff between devices and phone-as-remote (needs a small service in the container).
 
-Open notes: help the owner add ReplayGain tags (rsgain on TrueNAS); real-world check of LB matching quality
-with Qobuz titles ("Remastered" etc.).
+Open notes: help the owner add ReplayGain tags (rsgain on TrueNAS); real-world check of LB/MusicBrainz matching
+quality with Qobuz titles ("Remastered", "Deluxe" etc.) and of the Qobuz search link. The 1.5 features were built
+against the documented LB/MB APIs without network access to them (sandbox), so field names should be checked on the
+owner's real data first.

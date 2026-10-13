@@ -903,6 +903,44 @@ input[type="range"]:hover::-moz-range-thumb { opacity: 1; }
   .res-row:hover .res-bar i { background: var(--accent); }
 }
 
+/* ---------- Shopping list: missing albums, new releases ---------- */
+.missing-card .art { background: var(--hover); }
+.missing-card .art img { position: absolute; inset: 0; filter: grayscale(1); opacity: .5; }
+.missing-card .art-fallback { position: absolute; inset: 0; }
+.missing-card .card-title, .missing-card .card-year { color: var(--ink-2); }
+.missing-card:hover .art img { filter: none; opacity: 1; }
+.card-when { margin-top: 10px; font: 700 10.5px/1.2 var(--font); text-transform: uppercase; letter-spacing: .1em; color: var(--accent); }
+.card-when + .card-title { margin-top: 3px; }
+.miss-acts { display: flex; gap: 6px; margin-top: 8px; }
+.miss-btn {
+  display: inline-flex; align-items: center; height: 26px; padding: 0 9px; border: 1.5px solid var(--rule);
+  font: 700 10.5px var(--font); text-transform: uppercase; letter-spacing: .1em;
+}
+.miss-btn.ghost { border-color: var(--line); color: var(--ink-2); }
+@media (hover: hover) { .miss-btn:hover, .miss-btn.ghost:hover { background: var(--ink); border-color: var(--ink); color: var(--bg); } }
+.disco-count { font: italic 17px var(--font-serif); color: var(--ink-2); padding-bottom: 3px; }
+.chip.on { background: var(--ink); color: var(--bg); }
+.shop-artist { margin-top: 22px; }
+.shop-artist-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 10px; }
+.shop-artist-head a { font: 800 28px/1 var(--font-display); font-stretch: 62%; text-transform: uppercase; }
+.shop-artist-head a:hover { text-decoration: underline; }
+.shop-artist-head span { font: italic 16px var(--font-serif); color: var(--ink-2); }
+
+/* ---------- Time machine: year in review ---------- */
+.year-chips { margin: 16px 0 6px; }
+.year-chips + .section-note { margin-top: 10px; }
+.vbars { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 6px; align-items: end; height: 200px; border-bottom: 2px solid var(--rule); }
+.vbar { display: grid; grid-template-rows: auto 1fr; align-items: end; height: 100%; position: relative; }
+.vbar i { display: block; background: var(--ink); min-height: 2px; align-self: end; }
+.vbar.hi i { background: var(--accent); }
+.vbar-n { font: 700 11px var(--font); text-align: center; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.vbar-l { position: absolute; left: 0; right: 0; bottom: -22px; text-align: center; font: 700 10.5px var(--font); text-transform: uppercase; letter-spacing: .08em; color: var(--ink-2); }
+.vbar.hi .vbar-l, .vbar.hi .vbar-n { color: var(--accent); }
+.vbars + * { margin-top: 30px; }
+.vbars { margin-bottom: 26px; }
+.chart-wide { padding: 0; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); column-gap: 30px; }
+.chart .ph { width: 56px; height: 56px; background: var(--hover); }
+
 /* ---------- Star ratings ---------- */
 .stars { display: inline-flex; gap: 0; }
 .star { width: 30px; height: 30px; display: grid; place-items: center; color: currentColor; opacity: .45; }
@@ -1020,6 +1058,10 @@ input[type="range"]:hover::-moz-range-thumb { opacity: 1; }
   .t-album, .t-dur, .t-heart:not(.on) { display: none; }
   .t-heart.on { display: none; }
   .t-more { opacity: 1; }
+  .vbars { height: 150px; gap: 3px; }
+  .vbar-n { font-size: 0; }
+  .vbar-l { font-size: 9px; letter-spacing: 0; }
+  .shop-artist-head a { font-size: 24px; }
   .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .tile:nth-child(3) { border-left: 0; }
   .tile:nth-child(n+3) { border-top: 2px solid var(--rule); }

@@ -1,6 +1,6 @@
 /* Maré — a Navidrome (Subsonic / OpenSubsonic) web client. */
 'use strict';
-window.MARE_VERSION = '1.4.2';
+window.MARE_VERSION = '1.5.0';
 
 /* ================= Utilities ================= */
 
