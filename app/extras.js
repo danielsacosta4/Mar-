@@ -577,7 +577,17 @@ songMenu = function (anchor, s) {
         <div class="set-actions"><select class="select" data-pref="quality">${[['original', 'Original'], ['opus128', 'Opus 128'], ['opus96', 'Opus 96'], ['high', 'MP3 320'], ['normal', 'MP3 192'], ['low', 'MP3 128']].map(([v, l]) => `<option value="${v}"${Prefs.get('quality') === v ? ' selected' : ''}>${l}</option>`).join('')}</select></div></div>
       <div class="set-row"><div><h3>Download quality</h3><p>Original keeps lossless files (large: an album can be 1–2 GB in hi-res). Opus 128 is about half the size of MP3 320 at the same sound quality.</p></div>
         <div class="set-actions"><select class="select" data-pref="dlQuality">${[['opus128', 'Opus 128'], ['high', 'MP3 320'], ['original', 'Original']].map(([v, l]) => `<option value="${v}"${Prefs.get('dlQuality') === v ? ' selected' : ''}>${l}</option>`).join('')}</select></div></div>
+      <div class="set-row"><div><h3>Playback log</h3><p>Why each song changed, newest first. If a song ever skips by itself, the reason shows up here.</p></div>
+        <div class="set-actions"><button class="btn" data-playlog>Show</button></div></div>
+      <div class="playlog" hidden></div>
       <h2 class="set-group">Account</h2>`);
+    $('[data-playlog]', box).addEventListener('click', (e) => {
+      const out = $('.playlog', box);
+      out.hidden = !out.hidden;
+      e.currentTarget.textContent = out.hidden ? 'Show' : 'Hide';
+      const log = store.get('playlog') || [];
+      out.innerHTML = log.length ? log.map((l) => `<div class="pl-row"><b>${esc(l.why)}</b><span>${esc(l.title)} · ${esc(l.artist || '')}</span><i>${new Date(l.t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })} · ${esc(l.fmt || '')} · at ${fmtTime(l.pos)} of ${fmtTime(l.dur)}${l.tag && Math.abs(l.tag - l.dur) > 2 ? ' (tag says ' + fmtTime(l.tag) + ')' : ''}</i></div>`).join('') : '<p class="muted">Nothing recorded yet.</p>';
+    });
     const rng = $('[data-pref="crossfade"]', box);
     const paint = () => rng.style.setProperty('--p', (rng.value / 12) * 100 + '%');
     paint(); rng.addEventListener('input', paint);
