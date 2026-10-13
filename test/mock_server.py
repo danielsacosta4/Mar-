@@ -1,3 +1,4 @@
+import time
 import json, io, math, struct, random, hashlib, sys, os
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
@@ -133,8 +134,12 @@ class H(SimpleHTTPRequestHandler):
             return s.send_json(ok(lyricsList={"structuredLyrics":[]}))
         if m=='getLyrics':
             return s.send_json(ok(lyrics={}))
+        if m=='startScan':
+            SCAN['until']=time.time()+3; SCAN['n']+=1; log.append('startScan')
+            return s.send_json(ok(scanStatus={"scanning":True,"count":len(songs)+SCAN['n']*2-2}))
         if m=='getScanStatus':
-            return s.send_json(ok(scanStatus={"scanning":False,"count":len(songs),"lastScan":"2026-10-10T10:00:00Z"}))
+            busy=time.time()<SCAN['until']; k=SCAN['n']-(1 if busy else 0)
+            return s.send_json(ok(scanStatus={"scanning":busy,"count":len(songs)+k*2,"lastScan":"2026-10-10T10:00:00Z" if not k else f"2026-10-13T10:00:0{k%10}Z"}))
         if m=='setRating':
             log.append('setRating '+q['id']+' '+q['rating']); n=int(q['rating'])
             for x in songs+albums:
@@ -186,6 +191,7 @@ def lb(s,u):
 H.lb=lb
 # Listening history for the time machine: 2024-01-01 .. yesterday, a few plays a day (Sal & Pimenta only from 2025).
 import datetime as _dt
+SCAN={'until':0,'n':0}
 LISTENS=[]
 _r=random.Random(7); _d=_dt.datetime(2024,1,1,12); _end=_dt.datetime.now()-_dt.timedelta(days=1)
 while _d<_end:
