@@ -44,6 +44,7 @@ app/            The web app (static files, no framework, no build step needed to
   shopping.js   Round 5a: MusicBrainz client (MB), discographies (Disco) on artist pages, New Releases (#/new, LB
                 fresh releases), Shopping List (#/shopping), "New for You" on Home, Hidden ("Not interested").
   timemachine.js Round 5b: listening history from LB listens (Listens), "On This Day" on Home, Year in review (#/year/Y).
+  moments.js    Round 6: Moments: "Right Now" row on Home and the Moments page (#/moments), from time-of-day listening habits.
   sw.js         Service worker: app shell cache, downloaded songs (with Range support) and covers
 build/
   mare.sh.in    Installer template (bash). __VERSION__ is replaced. The installer downloads the app from GitHub.
@@ -52,13 +53,13 @@ test/
   mock_server.py  Mock Navidrome (/rest) + ListenBrainz (/lb/1) + static files, port 8765. User demo / secret
   test_*.py       Playwright browser tests (desktop + mobile, light + dark); screenshots to test-output/
                   (core, discovery, round3 = playlists/downloads/offline, round4 = collection + ratings + player bar,
-                  round5 = shopping list + time machine; the mock also answers /mb/* like MusicBrainz)
+                  round5 = shopping list + time machine, round6 = Moments; the mock also answers /mb/* like MusicBrainz)
   run.sh          Starts the mock and runs all suites
   fakepve/        Fake pct/pveam/pvesh/pvesm/systemctl to exercise mare.sh without Proxmox
 mare.sh         The built installer (~13 KB); this is what the owner's curl command downloads. Commit it with every release.
 ```
 
-Scripts load in order `app.js` → `discover.js` → `extras.js` → `collection.js` → `shopping.js` → `timemachine.js`; `boot()` waits for DOMContentLoaded
+Scripts load in order `app.js` → `discover.js` → `extras.js` → `collection.js` → `shopping.js` → `timemachine.js` → `moments.js`; `boot()` waits for DOMContentLoaded
 so every patch is in place before the first render (offline, the ping fails fast enough to race them). Later files use top-level bindings of earlier ones
 (`API`, `Player`, `UI`, `View`, `actions`, `store`, `register`, `icon`, `STROKE`, …) and patch them by wrapping
 (e.g. `UI.render`, `UI.renderQueue`, `UI.syncPlayer`, `songMenu`, `View.settings`, `API.call`).
@@ -127,6 +128,12 @@ so every patch is in place before the first render (offline, the ping fails fast
   top 100 songs, months, weekdays, busiest day. Years list = LB listening-activity `range=all_time`. On This Day =
   listens of today's date 1–5 years back (`Listens.day`, cached a week). Hours are shown only when ≥ half the listens
   carry a duration ("about"). Names are matched to the library with `Match.album` / `Match.many` / `Match.artist`.
+- **Moments (1.5.6)**: `Moments.load()` reads the last 120 days of LB listens (via `Listens.each`) into slots: weekday/weekend
+  (`wd`/`we`) × morning 5–11 / afternoon 11–17 / evening 17–22 / night 22–5, each with plays and top artists/albums/songs
+  (localStorage `mare.moments`, refreshed after 12 h). A slot needs ≥25 plays to be shown. Home gets a "Right Now" row (top
+  of Home, above On This Day; needs ≥3 library albums) and `#/moments` lists every slot (current first, "Now" tag, thin
+  slots named in one note). "Play this moment" = the slot's top songs matched to the library, shuffled. `Moments.now` can be
+  overridden (tests fake the time). Note `store` prefixes keys with `mare.`.
 - **Lyrics**: OpenSubsonic `getLyricsBySongId` (synced first), fallback `getLyrics`.
 - **Downloads** (`extras.js` + `sw.js`): songs fetched and stored in Cache Storage under `/offline/song/<id>`,
   covers under `/offline/art/<id>`; the service worker serves them (with HTTP Range) for any `/rest/stream?id=`.
@@ -183,12 +190,13 @@ uses `LANG=C.UTF-8` to avoid locale noise.
 - **1.5.3**: Now Playing on wide screens: a very long title no longer pushes the progress/volume bars and title under the Up Next list.
 - **1.5.4**: random mid-song skips. A stream cut short (proxy/network) ends "normally" mid-song, so `onEnded` now resumes the song where it stopped if it ends >3 s before its tagged length (up to 3 times, only with progress); `Player.note()` keeps a Playback log (Settings) of why each song changed.
 - **1.5.5**: lyrics panel on phones: it reserved 40% of the screen height as bottom padding, which made it taller than its row and spill over the title; now 16vh (empty-state margins smaller too).
+- **1.5.6**: Moments (see above): Right Now row on Home, Moments page, "Play this moment".
 
 ## Roadmap (agreed with the owner; each needs a plan + go-ahead first)
 
 Part 2, "only Maré does this":
 1. ~~New Releases for You~~ (1.5). 2. ~~Complete the Discography~~ (1.5). 3. ~~Time machine~~ (1.5).
-4. **Moments**: Home adapts to time of day/week based on real listening.
+4. ~~Moments~~ (1.5.6): Home adapts to time of day/week based on real listening.
 5. ~~Album as a story~~: credits, release info, notes, artist profiles done in 1.3; animated covers dropped (none in
    the owner's files).
 6. **Maré Connect**: handoff between devices and phone-as-remote (needs a small service in the container).

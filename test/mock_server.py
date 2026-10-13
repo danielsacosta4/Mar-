@@ -196,6 +196,12 @@ while _d<_end:
     if _d.month==10 and _d.day==13 and _d.year==2025:
         for k in range(6): x=albums[2]['songs'][k]; LISTENS.append({"listened_at":int((_d+_dt.timedelta(hours=2,minutes=5*k)).timestamp()),"track_metadata":{"artist_name":x['artist'],"track_name":x['title'],"release_name":x['album']}})
     _d+=_dt.timedelta(days=1)
+_d=_dt.datetime.now().replace(hour=20,minute=0,second=0,microsecond=0)-_dt.timedelta(days=90)
+while _d<_end:      # evenings: a different crowd from the noon listens
+    for k in range(3):
+        x=songs[16+(_d.toordinal()*3+k*7)%24]
+        LISTENS.append({"listened_at":int((_d+_dt.timedelta(minutes=9*k)).timestamp()),"track_metadata":{"artist_name":x['artist'],"track_name":x['title'],"release_name":x['album']}})
+    _d+=_dt.timedelta(days=1)
 LISTENS.sort(key=lambda l:-l['listened_at'])
 _lb=lb
 def lb2(s,u):
