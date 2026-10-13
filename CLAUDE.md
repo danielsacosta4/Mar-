@@ -178,6 +178,8 @@ uses `LANG=C.UTF-8` to avoid locale noise.
   artists). `/mb` Caddy route.
 - **1.5.1**: versioned file references (`app.css?v=…`) so a proxy or browser cache can't mix an old stylesheet with
   new scripts (the Your Year page looked broken that way).
+- **1.5.2**: Now Playing on phones: the cover keeps the same size and place whatever the title length (the title always
+  reserves two lines); stricter width limits on the controls.
 
 ## Roadmap (agreed with the owner; each needs a plan + go-ahead first)
 
