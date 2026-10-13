@@ -136,7 +136,9 @@ so every patch is in place before the first render (offline, the ping fails fast
 
 ## Building and releasing
 
-1. Change files in `app/` (bump `window.MARE_VERSION` in `app.js` and `VERSION` in `sw.js` together).
+1. Change files in `app/` (bump `window.MARE_VERSION` in `app.js`, `VERSION` in `sw.js` and the `?v=` on every
+   stylesheet/script in `index.html` together; build.sh refuses to build if they disagree). The `?v=` matters: the
+   owner's NPMplus may cache .css/.js ("Cache Assets"), which served 1.4's app.css with 1.5's scripts.
 2. `build/build.sh <version>` → new `mare.sh`. Since 1.5 the installer doesn't carry the app: it downloads the
    repository tarball (`MARE_SOURCE`, default codeload.github.com/…/tar.gz/refs/heads/main), extracts `app/`
    (fonts included), reads the version from app.js, and only then touches the container; a failed download changes
@@ -174,6 +176,8 @@ uses `LANG=C.UTF-8` to avoid locale noise.
   in library / not yet), "You have X of Y" + missing albums on artist pages (MusicBrainz), Shopping List page, Hide.
   Time machine: On This Day on Home, Year in review for any year (top artists/albums/songs, months, weekdays, new
   artists). `/mb` Caddy route.
+- **1.5.1**: versioned file references (`app.css?v=…`) so a proxy or browser cache can't mix an old stylesheet with
+  new scripts (the Your Year page looked broken that way).
 
 ## Roadmap (agreed with the owner; each needs a plan + go-ahead first)
 
