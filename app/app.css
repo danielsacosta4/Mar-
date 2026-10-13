@@ -588,12 +588,14 @@ input[type="range"]:hover::-moz-range-thumb { opacity: 1; }
   transition: transform .5s cubic-bezier(.2, .8, .2, 1), box-shadow .5s;
 }
 .np.is-paused .np-art { transform: scale(.9); box-shadow: 6px 6px 0 rgb(var(--on-tint)); }
-.np-controls { grid-area: controls; display: grid; gap: 6px; }
+.np-controls { grid-area: controls; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; min-width: 0; }
+.np-controls > * { min-width: 0; }
 .np-meta { display: flex; align-items: flex-end; gap: 12px; }
 .np-text { flex: 1; min-width: 0; }
 .np-title {
   font: 800 clamp(40px, 4.6vw, 72px)/.86 var(--font-display); font-stretch: 62%; text-transform: uppercase;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere;
+  min-height: 1.72em;   /* always room for two lines, so the cover doesn't change size from song to song */
 }
 .np-artist {
   display: block; margin-top: 8px; font: 700 13px var(--font); text-transform: uppercase; letter-spacing: .12em;
@@ -1119,6 +1121,10 @@ input[type="range"]:hover::-moz-range-thumb { opacity: 1; }
   .np-big { width: 56px; height: 56px; }
   .np .np-play { width: 68px; height: 68px; }
   .np-title { font-size: 46px; }
+  .np { overflow-x: hidden; }
+  .np-inner { width: 100%; box-sizing: border-box; overflow-x: hidden; }
+  .np-controls, .np-controls > * { min-width: 0; max-width: 100%; }
+  .np-controls input[type="range"] { width: 100%; min-width: 0; }
   .np-art { box-shadow: 10px 10px 0 rgb(var(--on-tint)); }
   .np-art-wrap { padding: 10px 0 22px; }
 }
@@ -1126,3 +1132,10 @@ input[type="range"]:hover::-moz-range-thumb { opacity: 1; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
 }
+
+/* Playback log (Settings) */
+.playlog { margin: 0 0 22px; border-top: 3px solid var(--ink); }
+.pl-row { display: grid; grid-template-columns: 170px 1fr; gap: 2px 14px; padding: 8px 0; border-bottom: 1px solid var(--line); font: 600 14px var(--font); }
+.pl-row b { text-transform: uppercase; letter-spacing: .06em; font-size: 12.5px; }
+.pl-row i { grid-column: 2; font-style: normal; font-size: 12.5px; color: var(--ink-2); }
+@media (max-width: 760px) { .pl-row { grid-template-columns: 1fr; } .pl-row i { grid-column: 1; } }

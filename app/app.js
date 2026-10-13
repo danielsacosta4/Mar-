@@ -1,6 +1,6 @@
 /* Maré — a Navidrome (Subsonic / OpenSubsonic) web client. */
 'use strict';
-window.MARE_VERSION = '1.5.0';
+window.MARE_VERSION = '1.5.4';
 
 /* ================= Utilities ================= */
 
@@ -488,6 +488,7 @@ const Player = {
         if (el !== this.audio) { this.preId = null; return; }
         if (!this.current() || !el.getAttribute('src')) return;
         toast(navigator.onLine === false ? 'You\'re offline and this song isn\'t downloaded.' : 'This track can\'t be played. Skipping.');
+        this.note('error ' + (el.error?.code || ''));
         setTimeout(() => this.next(true), 800);
       });
     });
@@ -620,6 +621,15 @@ const Player = {
     return Math.min(cf, this.dur() / 3);
   },
 
+  // Keeps a short log of why the song changed (Settings > Playback log), to explain unexpected skips.
+  note(why) {
+    const s = this.current();
+    if (!s) return;
+    const log = store.get('playlog') || [];
+    log.unshift({ t: Date.now(), title: s.title, artist: s.artist, fmt: s.suffix, pos: Math.round(this.pos()), dur: Math.round(this.dur()), tag: s.duration || 0, why });
+    store.set('playlog', log.slice(0, 60));
+  },
+
   // Runs every 100 ms: preloads the next song and starts it on time.
   tick() {
     const a = this.audio;
@@ -649,6 +659,7 @@ const Player = {
 
   advance(i, fade) {
     const old = this.audio;
+    this.note(fade > 0 ? 'crossfade' : 'end of song');
     this.finishScrobble();
     this.cur = 1 - this.cur;
     this.index = i;
@@ -682,8 +693,9 @@ const Player = {
     else { this.stopFade(); this.audio.pause(); }
   },
 
-  next(auto = false) {
+  next(auto = false, why) {
     if (!this.queue.length) return;
+    this.note(why || (auto ? 'ended' : 'next tapped'));
     if (this.index < this.queue.length - 1) { this.index++; this.load(true); }
     else if (this.repeat === 'all' || !auto) { this.index = 0; this.load(this.repeat === 'all' || !auto); if (!auto && this.repeat !== 'all') this.audio.pause(); }
     else { this.audio.pause(); this.seek(0); this.sync(); }
@@ -692,6 +704,7 @@ const Player = {
   prev() {
     if (!this.queue.length) return;
     if (this.pos() > 3 || this.index === 0) { this.seek(0); return; }
+    this.note('previous tapped');
     this.index--; this.load(true);
   },
 
@@ -700,7 +713,7 @@ const Player = {
     if (d) { this.stopFade(); clearTimeout(this.gapTimer); this.gapTimer = null; this.seek(f * d); }
   },
 
-  jump(i) { if (this.queue[i]) { this.index = i; this.load(true); } },
+  jump(i) { if (this.queue[i]) { this.note('queue tap'); this.index = i; this.load(true); } },
 
   playNext(songs) {
     songs = register(Array.isArray(songs) ? songs : [songs]);
@@ -819,6 +832,17 @@ const Player = {
   },
 
   onEnded() {
+    // A stream cut short by a proxy or the network ends "normally" mid-song: pick the song up again where it stopped.
+    const s = this.current(), p = this.pos(), d = s?.duration || 0, cut = this.cut?.id === s?.id ? this.cut : (this.cut = { id: s?.id, n: 0, p: -9 });
+    if (s && d > 20 && p < d - 3 && this.repeat !== 'one' && cut.n < 3 && p > cut.p + 1) {
+      cut.n++; cut.p = p;
+      this.note('cut off early, resuming');
+      const a = this.audio;
+      this.setSrc(a, s, p);
+      if (!a._offset) a.addEventListener('loadedmetadata', () => { a.currentTime = p; }, { once: true });
+      a.play().catch(() => {});
+      return;
+    }
     this.finishScrobble();
     if (this.repeat === 'one') { this.audio.currentTime = 0; this.load(true); return; }
     this.next(true);
@@ -831,7 +855,7 @@ const Player = {
     const ms = navigator.mediaSession;
     const h = {
       play: () => this.audio.play(), pause: () => { this.stopFade(); this.audio.pause(); },
-      previoustrack: () => this.prev(), nexttrack: () => this.next(),
+      previoustrack: () => this.prev(), nexttrack: () => this.next(false, 'headset / media key'),
       seekto: (e) => { if (e.seekTime != null) this.seek(e.seekTime); },
       seekbackward: () => { this.seek(this.pos() - 10); },
       seekforward: () => { this.seek(this.pos() + 10); },
