@@ -588,7 +588,8 @@ input[type="range"]:hover::-moz-range-thumb { opacity: 1; }
   transition: transform .5s cubic-bezier(.2, .8, .2, 1), box-shadow .5s;
 }
 .np.is-paused .np-art { transform: scale(.9); box-shadow: 6px 6px 0 rgb(var(--on-tint)); }
-.np-controls { grid-area: controls; display: grid; gap: 6px; }
+.np-controls { grid-area: controls; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; min-width: 0; }
+.np-controls > * { min-width: 0; }
 .np-meta { display: flex; align-items: flex-end; gap: 12px; }
 .np-text { flex: 1; min-width: 0; }
 .np-title {
