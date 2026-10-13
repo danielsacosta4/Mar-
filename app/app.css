@@ -640,13 +640,13 @@ input[type="range"]:hover::-moz-range-thumb { opacity: 1; }
 .q-remove:hover { color: rgb(var(--tint)); background: rgb(var(--on-tint)); }
 
 /* ---------- Lyrics ---------- */
-.np-lyrics { grid-area: queue; min-height: 0; overflow-y: auto; display: none; padding: 8px 4px 40vh 0; scrollbar-width: none;
+.np-lyrics { grid-area: queue; min-height: 0; overflow-y: auto; display: none; padding: 8px 4px 16vh 0; scrollbar-width: none;
   -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 8%, #000 80%, transparent 100%);
           mask-image: linear-gradient(180deg, transparent 0, #000 8%, #000 80%, transparent 100%); }
 .np-lyrics::-webkit-scrollbar { display: none; }
 .np.view-lyrics .np-lyrics { display: block; }
 .np.view-lyrics .np-queue { display: none; }
-.ly-lines { padding-top: 12vh; }
+.ly-lines { padding-top: 8vh; }
 .ly-line {
   margin: 0 0 16px; font: 500 clamp(24px, 2.5vw, 34px)/1.25 var(--font-serif);
   color: rgba(var(--on-tint), .92); transition: color .3s, opacity .3s;
@@ -656,7 +656,7 @@ input[type="range"]:hover::-moz-range-thumb { opacity: 1; }
 .np-lyrics.synced .ly-line.on { color: rgb(var(--on-tint)); font-style: italic; }
 .np-lyrics.synced .ly-line:hover { color: rgba(var(--on-tint), .75); }
 .ly-line.gap { opacity: .5; }
-.ly-msg { margin: 18vh 0 8px; font: 800 44px/.9 var(--font-display); font-stretch: 62%; text-transform: uppercase; }
+.ly-msg { margin: 8vh 0 8px; font: 800 44px/.9 var(--font-display); font-stretch: 62%; text-transform: uppercase; }
 .ly-hint { margin: 0; font: italic 17px/1.4 var(--font-serif); color: rgba(var(--on-tint), .75); max-width: 40ch; }
 
 /* ---------- Discovery ---------- */

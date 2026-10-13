@@ -182,6 +182,7 @@ uses `LANG=C.UTF-8` to avoid locale noise.
   reserves two lines); stricter width limits on the controls.
 - **1.5.3**: Now Playing on wide screens: a very long title no longer pushes the progress/volume bars and title under the Up Next list.
 - **1.5.4**: random mid-song skips. A stream cut short (proxy/network) ends "normally" mid-song, so `onEnded` now resumes the song where it stopped if it ends >3 s before its tagged length (up to 3 times, only with progress); `Player.note()` keeps a Playback log (Settings) of why each song changed.
+- **1.5.5**: lyrics panel on phones: it reserved 40% of the screen height as bottom padding, which made it taller than its row and spill over the title; now 16vh (empty-state margins smaller too).
 
 ## Roadmap (agreed with the owner; each needs a plan + go-ahead first)
 

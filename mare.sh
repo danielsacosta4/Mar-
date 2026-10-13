@@ -19,7 +19,7 @@ set -Eeuo pipefail
 export LANG=C.UTF-8 LC_ALL=C.UTF-8
 unset LANGUAGE
 
-MARE_VERSION="1.5.4"
+MARE_VERSION="1.5.5"
 TAG="mare"
 # Where the app comes from: the repository as a tarball (override for testing).
 MARE_SOURCE=${MARE_SOURCE:-https://codeload.github.com/danielsacosta4/Mar-/tar.gz/refs/heads/main}
