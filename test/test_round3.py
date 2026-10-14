@@ -57,6 +57,11 @@ async def main():
         for k in (0,2,4):
             await pg.click(f'.t-more >> nth={k}', force=True); await pg.click('[data-mi=addpl]'); await pg.wait_for_selector('.pl-opt')
             await pg.click('.pl-opt:has-text("Test List")'); await pg.wait_for_timeout(500)
+        # Adding a song that is already in the playlist is skipped, with a message
+        await pg.click('.t-more >> nth=0', force=True); await pg.click('[data-mi=addpl]'); await pg.wait_for_selector('.pl-opt')
+        await pg.click('.pl-opt:has-text("Test List")'); await pg.wait_for_timeout(700)
+        plid=await pg.evaluate("API.call('getPlaylists').then(r=>r.playlists.playlist.find(p=>p.name==='Test List').id)")
+        print('duplicate add: toast:', await pg.text_content('#toast'), '| songs in playlist:', await pg.evaluate(f"API.call('getPlaylist',{{id:'{plid}'}}).then(r=>r.playlist.entry.length)"))
         await pg.goto(B+'#/playlists'); await pg.wait_for_timeout(600)
         await pg.click('.card:has-text("Test List")'); await pg.wait_for_selector('.grip'); await pg.wait_for_timeout(400)
         before=await pg.eval_on_selector_all('.tracks .t-title','els=>els.map(e=>e.textContent)')

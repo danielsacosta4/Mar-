@@ -143,9 +143,15 @@ const Playlists = {
             onOk: (v) => this.create(v, songs.map((s) => s.id)) });
           if (name) toast(`Created “${name}”`);
         } else {
-          await API.call('updatePlaylist', { playlistId: b.dataset.pl, songIdToAdd: songs.map((s) => s.id) });
+          // Skip songs the playlist already has (and repeats within the selection).
+          const name = list.find((p) => p.id === b.dataset.pl)?.name || 'playlist';
+          const have = new Set(((await API.call('getPlaylist', { id: b.dataset.pl })).playlist?.entry || []).map((e) => e.id));
+          const fresh = songs.filter((s) => !have.has(s.id) && have.add(s.id));
+          const dup = songs.length - fresh.length;
+          if (!fresh.length) { toast(songs.length === 1 ? `“${songs[0].title}” is already in ${name}` : `Those songs are already in ${name}`); return; }
+          await API.call('updatePlaylist', { playlistId: b.dataset.pl, songIdToAdd: fresh.map((s) => s.id) });
           this.refresh();
-          toast(`Added to ${list.find((p) => p.id === b.dataset.pl)?.name || 'playlist'}`);
+          toast(dup ? `Added ${plural(fresh.length, 'song')} to ${name}. ${dup} already there.` : `Added to ${name}`);
         }
       } catch (err) { toast(err.message); }
     });
