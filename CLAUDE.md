@@ -200,6 +200,9 @@ uses `LANG=C.UTF-8` to avoid locale noise.
 - **1.5.6**: Moments (see above): Right Now row on Home, Moments page, "Play this moment".
 - **1.5.7**: Scan library button in Settings.
 - **1.5.8**: adding songs to a playlist skips ones it already has.
+- **1.5.9**: the skips were still happening as an `error` event (code 1, aborted) mid-song, not an early `ended`, so the error
+  handler now calls the same `Player.resume()` (reload at the position; ≤3 tries per song, only with progress) before skipping.
+  Log entries: "error N, resuming" / "skipped after error".
 
 ## Roadmap (agreed with the owner; each needs a plan + go-ahead first)
 

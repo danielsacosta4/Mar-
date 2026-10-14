@@ -1,6 +1,6 @@
 /* Maré — a Navidrome (Subsonic / OpenSubsonic) web client. */
 'use strict';
-window.MARE_VERSION = '1.5.8';
+window.MARE_VERSION = '1.5.9';
 
 /* ================= Utilities ================= */
 
@@ -89,7 +89,7 @@ const STROKE = {
   settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/>',
 };
 const FILL = {
-  play: '<path d="M7 4.6v14.8a1 1 0 0 0 1.5.86l12.3-7.4a1 1 0 0 0 0-1.72L8.5 3.74A1 1 0 0 0 7 4.6z"/>',
+  play: '<path d="M7 4.6v14.8a1 1 0 0 0 1.5.96l12.3-7.4a1 1 0 0 0 0-1.72L8.5 3.74A1 1 0 0 0 7 4.6z"/>',
   pause: '<rect x="6" y="4" width="4.2" height="16" rx="1.2"/><rect x="13.8" y="4" width="4.2" height="16" rx="1.2"/>',
   next: '<path d="M2.5 6.6v10.8a.8.8 0 0 0 1.25.66L11.5 13v4.4a.8.8 0 0 0 1.25.66l8.3-5.4a.8.8 0 0 0 0-1.33l-8.3-5.4a.8.8 0 0 0-1.25.67V11L3.75 5.94a.8.8 0 0 0-1.25.66z"/>',
   prev: '<path d="M21.5 6.6v10.8a.8.8 0 0 1-1.25.66L12.5 13v4.4a.8.8 0 0 1-1.25.66l-8.3-5.4a.8.8 0 0 1 0-1.33l8.3-5.4a.8.8 0 0 1 1.25.67V11l7.75-5.06a.8.8 0 0 1 1.25.66z"/>',
@@ -487,9 +487,12 @@ const Player = {
       el.addEventListener('error', (e) => {
         if (el !== this.audio) { this.preId = null; return; }
         if (!this.current() || !el.getAttribute('src')) return;
+        const code = el.error?.code || '';
+        // A dropped connection mid-song shows up as an error: pick the song up where it stopped instead of skipping.
+        if (navigator.onLine !== false && this.resume(`error ${code}, resuming`)) return;
         toast(navigator.onLine === false ? 'You\'re offline and this song isn\'t downloaded.' : 'This track can\'t be played. Skipping.');
-        this.note('error ' + (el.error?.code || ''));
-        setTimeout(() => this.next(true), 800);
+        this.note('error ' + code);
+        setTimeout(() => this.next(true, 'skipped after error'), 800);
       });
     });
     const saved = store.get('player');
@@ -831,18 +834,23 @@ const Player = {
     }
   },
 
+  // Reload the playing song at the point it stopped, when that was mid-song (a dropped or cut-short stream).
+  // Up to 3 times per song, and only if it got further than last time; returns false when it gave up.
+  resume(why) {
+    const s = this.current(), p = this.pos(), d = s?.duration || 0, cut = this.cut?.id === s?.id ? this.cut : (this.cut = { id: s?.id, n: 0, p: -9 });
+    if (!(s && d > 20 && p >= 1 && p < d - 3 && cut.n < 3 && p > cut.p + 1)) return false;
+    cut.n++; cut.p = p;
+    this.note(why);
+    const a = this.audio;
+    this.setSrc(a, s, p);
+    if (!a._offset) a.addEventListener('loadedmetadata', () => { a.currentTime = p; }, { once: true });
+    a.play().catch(() => {});
+    return true;
+  },
+
   onEnded() {
     // A stream cut short by a proxy or the network ends "normally" mid-song: pick the song up again where it stopped.
-    const s = this.current(), p = this.pos(), d = s?.duration || 0, cut = this.cut?.id === s?.id ? this.cut : (this.cut = { id: s?.id, n: 0, p: -9 });
-    if (s && d > 20 && p < d - 3 && this.repeat !== 'one' && cut.n < 3 && p > cut.p + 1) {
-      cut.n++; cut.p = p;
-      this.note('cut off early, resuming');
-      const a = this.audio;
-      this.setSrc(a, s, p);
-      if (!a._offset) a.addEventListener('loadedmetadata', () => { a.currentTime = p; }, { once: true });
-      a.play().catch(() => {});
-      return;
-    }
+    if (this.repeat !== 'one' && this.resume('cut off early, resuming')) return;
     this.finishScrobble();
     if (this.repeat === 'one') { this.audio.currentTime = 0; this.load(true); return; }
     this.next(true);
