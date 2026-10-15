@@ -24,6 +24,9 @@ async def main():
             print(name,'tiles:', await pg.evaluate("[...document.querySelectorAll('.tile b')].map(e=>e.textContent)"),
                   'bars:', await pg.evaluate("[...document.querySelectorAll('.res-n')].map(e=>e.textContent)"))
             await pg.screenshot(path=f'{SP}/r4-{name}-collection.png')
+            print(name,'growth:', await pg.text_content('.growth-chips + .section-note'), '| months:', await pg.locator('.g-hit').count())
+            await pg.click('[data-act=growth-metric][data-m=songs]'); await pg.wait_for_timeout(300)
+            print(name,'growth songs:', await pg.text_content('.growth-chips + .section-note'))
             await pg.click('.tile >> nth=2'); await pg.wait_for_timeout(500)
             print(name,'lossy filter:', await pg.evaluate('location.hash'), await pg.evaluate("[...document.querySelectorAll('.grid .card-title')].map(e=>e.textContent)"))
             # Spec sheet

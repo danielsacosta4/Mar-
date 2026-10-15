@@ -1143,3 +1143,13 @@ input[type="range"]:hover::-moz-range-thumb { opacity: 1; }
 /* Moments */
 .tag-now { margin-left: 12px; padding: 3px 8px; vertical-align: middle; background: var(--accent); color: #fff; font: 700 11px var(--font); letter-spacing: .12em; text-transform: uppercase; }
 .mo-thin { margin-top: 28px; }
+
+/* Collection growth chart */
+.growth-chips { margin: 0 0 10px; }
+.growth { display: block; width: 100%; height: auto; color: var(--ink); overflow: visible; }
+.growth .g-area { fill: currentColor; opacity: .08; }
+.growth .g-line { fill: none; stroke: currentColor; stroke-width: 3; vector-effect: non-scaling-stroke; }
+.growth .g-bar { fill: currentColor; opacity: .55; }
+.growth .g-hit { fill: transparent; }
+.growth .g-hit:hover { fill: currentColor; opacity: .06; }
+.growth .g-tick { fill: var(--ink-2); font: 700 11px var(--font); letter-spacing: .06em; text-transform: uppercase; }

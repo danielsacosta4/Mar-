@@ -31,7 +31,7 @@ const Catalog = {
   load() {
     if (!this.data) {
       const d = store.get('catalog');
-      this.data = d && d.v === 1 ? d : null;
+      this.data = d && d.v === 2 ? d : null;
     }
     return this.data;
   },
@@ -60,8 +60,8 @@ const Catalog = {
         const songs = r.searchResult3?.song || [];
         for (const s of songs) {
           if (!s.albumId) continue;
-          // [name, artist, cover, fmt, dMin, dMax, rMin, rMax, kbps·sec, secs, bytes, songs, tagged, lossy, rating]
-          const a = albums[s.albumId] || (albums[s.albumId] = [s.album || '', s.displayAlbumArtist || s.artist || '', s.coverArt || s.albumId, '', 99, 0, 1e9, 0, 0, 0, 0, 0, 0, 0, 0]);
+          // [name, artist, cover, fmt, dMin, dMax, rMin, rMax, kbps·sec, secs, bytes, songs, tagged, lossy, rating, added 'YYYY-MM']
+          const a = albums[s.albumId] || (albums[s.albumId] = [s.album || '', s.displayAlbumArtist || s.artist || '', s.coverArt || s.albumId, '', 99, 0, 1e9, 0, 0, 0, 0, 0, 0, 0, 0, '']);
           const fmt = String(s.suffix || '').toUpperCase();
           if (fmt && !a[3].split('/').includes(fmt)) a[3] = a[3] ? a[3] + '/' + fmt : fmt;
           if (s.bitDepth) { a[4] = Math.min(a[4], s.bitDepth); a[5] = Math.max(a[5], s.bitDepth); }
@@ -69,6 +69,7 @@ const Catalog = {
           const sec = s.duration || 0;
           a[8] += (s.bitRate || 0) * sec; a[9] += sec;
           a[10] += s.size || 0; a[11]++;
+          if (s.created) { const m = String(s.created).slice(0, 7); if (!a[15] || m < a[15]) a[15] = m; }
           if (hasGain(s)) a[12]++;
           if (!isLossless(s)) a[13]++;
           if (s.userRating) rated.push(Object.fromEntries(RATED_KEEP.filter((k) => s[k] != null).map((k) => [k, s[k]])));
@@ -80,7 +81,7 @@ const Catalog = {
         if (songs.length < size) break;
       }
       for (const a of Object.values(albums)) { if (a[4] === 99) a[4] = 0; if (a[6] === 1e9) a[6] = 0; }
-      this.data = { v: 1, at: Date.now(), scan: st?.lastScan || '', songs: total, albums, rated };
+      this.data = { v: 2, at: Date.now(), scan: st?.lastScan || '', songs: total, albums, rated };
       this.save();
       return this.data;
     })().finally(() => { this.building = null; this.progress = null; this.paint(); UI.collectionTick?.(); });
@@ -392,6 +393,7 @@ View.collection = async (main, params, filter) => {
         <a class="tile" href="#/collection/lossy"><span class="label">Lossy files</span><b>${lossy.toLocaleString()}</b><span>${lossy ? 'albums with MP3, AAC or similar' : 'none, all lossless'}</span></a>
         <a class="tile${untagged ? ' warn' : ''}" href="#/collection/untagged"><span class="label">Volume tags</span><b>${untagged ? untagged.toLocaleString() : 'All'}</b><span>${untagged ? `albums missing them (${pct(untagged)})` : 'every album is tagged'}</span></a>
       </div>
+      ${Growth.html(all)}
       ${section('By resolution', `<div class="res-bars">${per.map(([k, l, v]) => `<a class="res-row" href="#/collection/${k}">
           <span class="res-label">${esc(l)}</span><span class="res-bar"><i style="width:${(v / max) * 100}%"></i></span><span class="res-n">${v.toLocaleString()}</span></a>`).join('')}</div>`)}
       <p class="coll-foot">${all.length.toLocaleString()} albums · ${d.songs.toLocaleString()} songs${bytes ? ` · ${fmtSize(bytes)}` : ''} · read ${esc(new Date(d.at).toLocaleDateString(undefined, { day: 'numeric', month: 'long' }))}
@@ -407,6 +409,49 @@ View.collection = async (main, params, filter) => {
   draw();
   if (!Catalog.building) Catalog.ensure().then(draw).catch((e) => toast(e.message));
 };
+/* Collection growth (1.5.10): when each album arrived, from the date Navidrome first saw its files. */
+const Growth = {
+  metric: 'albums',
+  METRICS: { albums: ['Albums', () => 1, (v) => v.toLocaleString()], songs: ['Songs', (a) => a[11], (v) => v.toLocaleString()], size: ['Storage', (a) => a[10], (v) => fmtSize(v) || '0 MB'] },
+  monthName: (m) => new Date(m + '-15').toLocaleDateString(undefined, { month: 'long', year: 'numeric' }),
+  html(all) {
+    const dated = all.filter((a) => a[15]);
+    if (dated.length < 2) return '';
+    const [label, val, fmt] = this.METRICS[this.metric];
+    // Every month from the first to now, so quiet months show as flat.
+    const first = dated.reduce((m, a) => (a[15] < m ? a[15] : m), '9999');
+    const now = new Date(), end = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const months = [];
+    for (let [y, mo] = first.split('-').map(Number); `${y}-${String(mo).padStart(2, '0')}` <= end; mo === 12 ? (y++, mo = 1) : mo++) months.push(`${y}-${String(mo).padStart(2, '0')}`);
+    const add = Object.fromEntries(months.map((m) => [m, 0])), addN = Object.fromEntries(months.map((m) => [m, 0]));
+    for (const a of dated) { add[a[15]] += val(a); addN[a[15]]++; }
+    // A first month far bigger than any other is the day Navidrome first scanned the library, not real buying: start from it.
+    const rest = months.slice(1).map((m) => addN[m]);
+    const base = months.length > 1 && addN[months[0]] >= dated.length * 0.4 && addN[months[0]] >= 3 * Math.max(1, ...rest);
+    let total = 0;
+    const pts = months.map((m) => (total += add[m]));
+    const W = innerWidth < 760 ? 380 : 720, H = innerWidth < 760 ? 200 : 220, P = 8, n = months.length, top = Math.max(1, total);
+    const lo = base ? pts[0] * 0.9 : 0;                  // keep the growth after the starting point visible
+    const x = (i) => P + (n === 1 ? (W - 2 * P) / 2 : (i * (W - 2 * P)) / (n - 1));
+    const y = (v) => H - 30 - ((v - lo) / Math.max(1, top - lo)) * (H - 50);
+    const barMax = Math.max(1, ...months.slice(base ? 1 : 0).map((m) => add[m]));
+    const bw = Math.max(2, Math.min(18, (W - 2 * P) / n - 3));
+    const line = pts.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join('');
+    const bars = months.map((m, i) => (i === 0 && base) || !add[m] ? '' : `<rect class="g-bar" x="${(x(i) - bw / 2).toFixed(1)}" y="${(H - 22 - (add[m] / barMax) * 34).toFixed(1)}" width="${bw.toFixed(1)}" height="${((add[m] / barMax) * 34).toFixed(1)}"/>`).join('');
+    const hits = months.map((m, i) => `<rect class="g-hit" x="${(x(i) - (W / n) / 2).toFixed(1)}" y="0" width="${(W / n).toFixed(1)}" height="${H}"><title>${esc(this.monthName(m))}: ${i === 0 && base ? 'starting point, ' : add[m] ? '+' : ''}${esc(fmt(add[m]))}${i === 0 && base ? '' : ' added'} · ${esc(fmt(pts[i]))} total</title></rect>`).join('');
+    const ticks = months.map((m, i) => (i === 0 || i === n - 1 || m.endsWith('-01')) && (i === 0 || i === n - 1 || Math.abs(i - (n - 1)) > n / 12) ? `<text class="g-tick" x="${x(i).toFixed(1)}" y="${H - 6}" text-anchor="${i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle'}">${m.endsWith('-01') && i && i !== n - 1 ? m.slice(0, 4) : esc(new Date(m + '-15').toLocaleDateString(undefined, { month: 'short', year: 'numeric' }))}</text>` : '').join('');
+    const later = months.slice(base ? 1 : 0).filter((m) => add[m]);
+    const best = later.sort((a, b) => add[b] - add[a])[0];
+    const note = base
+      ? `Started with ${fmt(pts[0])}${this.metric === 'size' ? '' : ' ' + label.toLowerCase()} in ${this.monthName(months[0])}, when Navidrome first scanned your library. ${best ? `Since then: +${fmt(total - pts[0])}. Biggest month: ${this.monthName(best)} (+${fmt(add[best])}).` : 'Nothing added since.'}`
+      : best ? `Biggest month: ${this.monthName(best)} (+${fmt(add[best])}).` : '';
+    const chips = Object.entries(this.METRICS).map(([k, [l]]) => `<button class="chip${k === this.metric ? ' on' : ''}" data-act="growth-metric" data-m="${k}">${l}</button>`).join('');
+    return section('Your Collection Over Time', `<div class="chips growth-chips">${chips}</div><p class="section-note">${esc(note)}</p>
+      <svg class="growth" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(label)} in your collection over time">
+        <path class="g-area" d="${line}L${x(n - 1).toFixed(1)},${H - 22}L${x(0).toFixed(1)},${H - 22}Z"/><path class="g-line" d="${line}"/>${bars}${hits}${ticks}</svg>`);
+  },
+};
+actions['growth-metric'] = (el) => { Growth.metric = el.dataset.m; UI.collectionTick?.(); };
 actions['coll-reread'] = async () => { await Catalog.build(await API.call('getScanStatus').then((r) => r.scanStatus).catch(() => null)); };
 
 // Navigation: Collection under Library.

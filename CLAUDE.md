@@ -141,6 +141,11 @@ so every patch is in place before the first render (offline, the ping fails fast
   downloader (qobuz-dl / SpotiFLAC style); declined on purpose, don't build it.
 - **Add to Playlist (1.5.8)**: `Playlists.addTo` reads the chosen playlist (`getPlaylist`) first and adds only songs it doesn't have
   (also drops repeats inside the selection); if nothing is new it says "… is already in <playlist>" and adds nothing.
+- **Collection growth (1.5.10)**: the Catalog (now `v: 2`, so it rebuilds once) keeps each album's added month (`a[15]`,
+  earliest song `created`, i.e. when Navidrome first saw the files). `Growth.html()` on the Collection page draws an inline-SVG
+  running total + monthly bars for albums / songs / storage (chips). A first month holding ≥40% of the albums and ≥3× any
+  other month is treated as the starting point (the first scan), not as buying: the chart starts just under it and the note
+  says "Started with N … when Navidrome first scanned your library". The owner chose this over ND_RECENTLYADDEDBYMODTIME.
 - **Lyrics**: OpenSubsonic `getLyricsBySongId` (synced first), fallback `getLyrics`.
 - **Downloads** (`extras.js` + `sw.js`): songs fetched and stored in Cache Storage under `/offline/song/<id>`,
   covers under `/offline/art/<id>`; the service worker serves them (with HTTP Range) for any `/rest/stream?id=`.
@@ -203,6 +208,7 @@ uses `LANG=C.UTF-8` to avoid locale noise.
 - **1.5.9**: the skips were still happening as an `error` event (code 1, aborted) mid-song, not an early `ended`, so the error
   handler now calls the same `Player.resume()` (reload at the position; ≤3 tries per song, only with progress) before skipping.
   Log entries: "error N, resuming" / "skipped after error".
+- **1.5.10**: "Your Collection Over Time" chart on the Collection page.
 
 ## Roadmap (agreed with the owner; each needs a plan + go-ahead first)
 
