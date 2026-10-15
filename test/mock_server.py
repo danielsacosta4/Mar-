@@ -24,6 +24,7 @@ for i,n in enumerate(names):
         s["size"]=int(s["bitRate"]*125*s["duration"]*40)
         if (i*8+t)%5==0: s["userRating"]=5
         elif (i*8+t)%7==0: s["userRating"]=4
+        s["created"]=(["2024-03-02T10:00:00Z"]*7+["2024-06-11T10:00:00Z","2024-11-20T10:00:00Z","2025-02-03T10:00:00Z","2025-07-15T10:00:00Z","2026-01-09T10:00:00Z"])[i]   # a big first import, then a trickle
         tr.append(s); songs.append(s)
     albums.append(dict(id=aid,name=n,artist=ar[1],artistId=ar[0],coverArt=aid,songCount=8,duration=sum(x["duration"] for x in tr),year=1975+i*4,genre=genres[i%5],playCount=random.randint(0,40),songs=tr,starred="2026-01-01T00:00:00Z" if i%4==0 else None,
         recordLabels=[{"name":"Valentim de Carvalho"}] if i%3==2 else None,releaseDate={"year":1975+i*4,"month":3,"day":14} if i%3==2 else None,
