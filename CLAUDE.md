@@ -84,7 +84,9 @@ so every patch is in place before the first render (offline, the ping fails fast
   like MP3 at ~2× the bitrate and has no MP3 encoder gaps), MP3 320 / 192 / 128. Devices that can't play Ogg Opus
   (`CAN_OPUS`, e.g. iOS < 17) get the paired MP3 (Opus 128 → MP3 320, Opus 96 → MP3 192). Downloads use the same specs.
   Volume = user volume × ReplayGain (track/album/auto, peak-limited, never above 1) × fade factor.
-  iOS/iPadOS can't set element volume (`Player.volLocked`), so crossfade and levelling are disabled there.
+  iOS/iPadOS can't set element volume (`Player.volLocked`), so crossfade and levelling are disabled there. Since 1.5.11 those
+  devices also use ONE element for everything (`tick()` returns early, `load()` never swaps to the spare): iOS only lets an
+  element start without a tap once it has been tapped, so the spare couldn't start the next song.
 - **Scrobbling**: `scrobble` (now playing + submission after half the song or 4 min of real listening).
   Failed submissions are queued in localStorage and flushed when back online. ListenBrainz receives plays via
   Navidrome's own ListenBrainz integration.
@@ -209,6 +211,9 @@ uses `LANG=C.UTF-8` to avoid locale noise.
   handler now calls the same `Player.resume()` (reload at the position; ≤3 tries per song, only with progress) before skipping.
   Log entries: "error N, resuming" / "skipped after error".
 - **1.5.10**: "Your Collection Over Time" chart on the Collection page.
+- **1.5.11**: progress bar froze at 0:00 while playing: `UI.scrubbing` stayed true when a drag ended without a `change` event
+  (released where it started / interrupted); now also cleared on pointerup/cancel/touchend/blur. iPhone: next song didn't start
+  by itself (second element never tapped) → single element on `volLocked` devices.
 
 ## Roadmap (agreed with the owner; each needs a plan + go-ahead first)
 

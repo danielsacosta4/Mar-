@@ -1,6 +1,6 @@
 /* Maré — a Navidrome (Subsonic / OpenSubsonic) web client. */
 'use strict';
-window.MARE_VERSION = '1.5.10';
+window.MARE_VERSION = '1.5.11';
 
 /* ================= Utilities ================= */
 
@@ -89,7 +89,7 @@ const STROKE = {
   settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/>',
 };
 const FILL = {
-  play: '<path d="M7 4.6v14.8a1 1 0 0 0 1.5.106l12.3-7.4a1 1 0 0 0 0-1.72L8.5 3.74A1 1 0 0 0 7 4.6z"/>',
+  play: '<path d="M7 4.6v14.8a1 1 0 0 0 1.5.116l12.3-7.4a1 1 0 0 0 0-1.72L8.5 3.74A1 1 0 0 0 7 4.6z"/>',
   pause: '<rect x="6" y="4" width="4.2" height="16" rx="1.2"/><rect x="13.8" y="4" width="4.2" height="16" rx="1.2"/>',
   next: '<path d="M2.5 6.6v10.8a.8.8 0 0 0 1.25.66L11.5 13v4.4a.8.8 0 0 0 1.25.66l8.3-5.4a.8.8 0 0 0 0-1.33l-8.3-5.4a.8.8 0 0 0-1.25.67V11L3.75 5.94a.8.8 0 0 0-1.25.66z"/>',
   prev: '<path d="M21.5 6.6v10.8a.8.8 0 0 1-1.25.66L12.5 13v4.4a.8.8 0 0 1-1.25.66l-8.3-5.4a.8.8 0 0 1 0-1.33l8.3-5.4a.8.8 0 0 1 1.25.67V11l7.75-5.06a.8.8 0 0 1 1.25.66z"/>',
@@ -595,7 +595,7 @@ const Player = {
     this.resetTrackState();
     const a = this.audio;
     // Reuse the preloaded element if it already holds this song.
-    if (this.preId === s.id && this.spare.getAttribute('src')) {
+    if (!this.volLocked && this.preId === s.id && this.spare.getAttribute('src')) {
       a.pause(); a.removeAttribute('src'); a._song = null;
       this.cur = 1 - this.cur;
     } else {
@@ -636,6 +636,9 @@ const Player = {
   // Runs every 100 ms: preloads the next song and starts it on time.
   tick() {
     const a = this.audio;
+    // iPhone/iPad only let an audio player start on its own once it has been tapped, so the second (preloading)
+    // player couldn't start the next song. There (no crossfade anyway) every song plays in the same player.
+    if (this.volLocked) return;
     if (a.paused || this.fade || !this.current()) return;
     const d = this.dur();
     if (!d) return;
@@ -1709,7 +1712,11 @@ function wireRanges() {
       $$('.p-cur').forEach((x) => { x.textContent = fmtTime(f * d); });
     };
     r.addEventListener('input', () => { UI.scrubbing = true; preview(); });
-    r.addEventListener('change', () => { Player.seekFraction(r.value / 1000); UI.scrubbing = false; });
+    // Browsers skip "change" when the bar is let go where it started, or when a drag is interrupted; without the
+    // fallbacks the progress bar stayed frozen (at 0:00 on every next song) while the music played on.
+    const done = () => { if (!UI.scrubbing) return; UI.scrubbing = false; Player.seekFraction(r.value / 1000); };
+    r.addEventListener('change', done);
+    ['pointerup', 'pointercancel', 'touchend', 'touchcancel', 'blur'].forEach((ev) => r.addEventListener(ev, () => setTimeout(done, 0)));
   });
   $$('.volume').forEach((v) => {
     v.addEventListener('input', () => { Player.setVolume(v.value / 100); UI.syncPlayer(); });
