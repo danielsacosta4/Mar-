@@ -221,6 +221,12 @@ uses `LANG=C.UTF-8` to avoid locale noise.
 - **1.5.13**: iPhone Home Screen app sometimes opened with the page shorter than the screen (black band under the tabs, Now
   Playing under the status bar). `--ios-gap` = `screen.height - innerHeight` (standalone, portrait, not typing) extends the tab bar,
   mini player and Now Playing down over it; Now Playing's top padding now respects the safe area.
+- **1.5.14**: from the owner's scorecard. Lock screen shows previous/next (no seekbackward/seekforward handlers; iOS shows ±10 s
+  when they exist). Playlist reordering by touch: grips are 34×44 on phones, a touchstart on a grip is prevented (no page
+  scroll) and doesn't start the long-press menu. Downloads toast at once ("Starting download…", then "Downloading X · N songs")
+  and the button shows "Starting…" before the progress ring. Offline bar: × to hide it, and a ping every 15 s (and on
+  returning to the app) so it clears itself. Search results re-ranked: exact > starts with > a word starts with > rest, then play count;
+  Top Result = best-ranked of artist / album / song (artist wins ties).
 
 ## Roadmap (agreed with the owner; each needs a plan + go-ahead first)
 

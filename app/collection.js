@@ -324,7 +324,7 @@ document.addEventListener('contextmenu', (e) => {
 {
   let timer = null, start = null, fired = false;
   document.addEventListener('touchstart', (e) => {
-    if (e.touches.length !== 1) return;
+    if (e.touches.length !== 1 || e.target.closest?.('.grip')) return; // grips drag, they don't open menus
     const t = e.touches[0];
     start = { x: t.clientX, y: t.clientY, target: e.target };
     fired = false;

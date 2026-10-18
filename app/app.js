@@ -1,6 +1,6 @@
 /* Maré — a Navidrome (Subsonic / OpenSubsonic) web client. */
 'use strict';
-window.MARE_VERSION = '1.5.13';
+window.MARE_VERSION = '1.5.14';
 
 /* ================= Utilities ================= */
 
@@ -890,9 +890,8 @@ const Player = {
       pause: () => { this.ownPause = Date.now(); this.stopFade(); this.audio.pause(); },
       previoustrack: () => this.prev(), nexttrack: () => this.next(false, 'headset / media key'),
       seekto: (e) => { if (e.seekTime != null) this.seek(e.seekTime); },
-      seekbackward: () => { this.seek(this.pos() - 10); },
-      seekforward: () => { this.seek(this.pos() + 10); },
     };
+    // No seekbackward/seekforward: when they're set, iOS shows ±10 s on the lock screen instead of previous/next.
     for (const [k, fn] of Object.entries(h)) { try { ms.setActionHandler(k, fn); } catch { /* unsupported */ } }
   },
 };
@@ -1450,16 +1449,21 @@ async function searchResults(q) {
   const r = await API.call('search3', { query: q, artistCount: 12, albumCount: 18, songCount: 30 });
   if (($('#search-form input')?.value.trim() || '') !== q) return;
   const res = r.searchResult3 || {};
-  const ar = res.artist || [], al = res.album || [], so = res.song || [];
+  // Navidrome matches anywhere in the name, in no useful order: put exact matches first, then names that start with
+  // the search, then a word that does, then the rest; most played first within each.
+  const fold = (x) => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+  const fq = fold(q);
+  const rank = (name) => { const n = fold(name); return n === fq ? 0 : n.startsWith(fq) ? 1 : (' ' + n).includes(' ' + fq) ? 2 : 3; };
+  const order = (list, name) => list.map((x, i) => ({ x, i, r: rank(name(x)) }))
+    .sort((a, b) => a.r - b.r || (b.x.playCount || 0) - (a.x.playCount || 0) || a.i - b.i).map((o) => o.x);
+  const ar = order(res.artist || [], (a) => a.name), al = order(res.album || [], (a) => a.name), so = order(res.song || [], (s) => s.title);
   if (!ar.length && !al.length && !so.length) {
     box.innerHTML = `<div class="empty"><h3>No results for “${esc(q)}”</h3><p>Check the spelling or try a shorter search.</p></div>`;
     return;
   }
   // Top result: an exact artist match beats an album, which beats a song.
-  const lq = q.toLowerCase();
-  let top = ar.find((a) => a.name.toLowerCase() === lq) ? { kind: 'artist', v: ar.find((a) => a.name.toLowerCase() === lq) }
-    : al.find((a) => a.name.toLowerCase() === lq) ? { kind: 'album', v: al.find((a) => a.name.toLowerCase() === lq) }
-      : ar[0] ? { kind: 'artist', v: ar[0] } : al[0] ? { kind: 'album', v: al[0] } : { kind: 'song', v: so[0] };
+  const top = [ar[0] && { kind: 'artist', v: ar[0], r: rank(ar[0].name) }, al[0] && { kind: 'album', v: al[0], r: rank(al[0].name) },
+    so[0] && { kind: 'song', v: so[0], r: rank(so[0].title) }].filter(Boolean).sort((a, b) => a.r - b.r)[0];
   const t = top.v;
   const topHtml = `<a class="top-result" href="${top.kind === 'artist' ? '#/artist/' + esc(t.id) : top.kind === 'album' ? '#/album/' + esc(t.id) : '#/album/' + esc(t.albumId)}">
       <div class="art${top.kind === 'artist' ? '" style="border-radius:50%' : ''}">${artImg(t.coverArt, 200)}</div>
