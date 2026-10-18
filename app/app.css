@@ -548,7 +548,7 @@ input[type="range"]:hover::-moz-range-thumb { opacity: 1; }
 
 /* ---------- Now Playing: the album's colour, full screen ---------- */
 .np {
-  position: fixed; inset: 0; z-index: 40; overflow: hidden;
+  position: fixed; inset: 0 0 calc(-1 * var(--ios-gap, 0px)); z-index: 40; overflow: hidden;
   background: rgb(var(--tint)); color: rgb(var(--on-tint));
   --ink: rgb(var(--on-tint)); --ink-2: rgba(var(--on-tint), .72); --line: rgba(var(--on-tint), .25);
   animation: np-in .34s cubic-bezier(.2, .8, .2, 1);
@@ -987,7 +987,7 @@ input[type="range"]:hover::-moz-range-thumb { opacity: 1; }
 }
 @media (max-width: 1000px) {
   .np-inner {
-    grid-template-columns: minmax(0, 1fr); max-width: 560px; padding: 12px 24px max(24px, env(safe-area-inset-bottom));
+    grid-template-columns: minmax(0, 1fr); max-width: 560px; padding: max(12px, env(safe-area-inset-top)) 24px calc(max(24px, env(safe-area-inset-bottom)) + var(--ios-gap, 0px));
     grid-template-areas: "top" "art" "controls"; grid-template-rows: auto minmax(0, 1fr) auto;
   }
   .np-tab-art { display: inline-block; }
@@ -1089,7 +1089,7 @@ input[type="range"]:hover::-moz-range-thumb { opacity: 1; }
 
   /* Mini player: a black strip docked above the tabs */
   .player {
-    position: fixed; left: 0; right: 0; bottom: calc(58px + env(safe-area-inset-bottom));
+    position: fixed; left: 0; right: 0; bottom: calc(58px + env(safe-area-inset-bottom) - var(--ios-gap, 0px));
     height: var(--player-h); padding: 0 6px 0 10px; gap: 4px;
     grid-template-columns: minmax(0, 1fr) auto auto;
   }
@@ -1106,7 +1106,7 @@ input[type="range"]:hover::-moz-range-thumb { opacity: 1; }
 
   .tabbar {
     display: grid; grid-template-columns: repeat(3, 1fr);
-    position: fixed; left: 0; right: 0; bottom: 0; z-index: 4;
+    position: fixed; left: 0; right: 0; bottom: calc(-1 * var(--ios-gap, 0px)); z-index: 4;
     padding: 0 0 env(safe-area-inset-bottom); height: calc(58px + env(safe-area-inset-bottom));
     background: var(--bg); border-top: 3px solid var(--rule);
   }

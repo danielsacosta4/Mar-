@@ -218,6 +218,9 @@ uses `LANG=C.UTF-8` to avoid locale noise.
   devices a `pause` Maré didn't cause (`ownPause` stamped by toggle/setSrc/next/media-session pause) sets `sysPaused`; the next
   `play` (or media-session play) calls `Player.refresh()` = reload at the same position. Log: "paused by headphones or system" /
   "resumed after headphones".
+- **1.5.13**: iPhone Home Screen app sometimes opened with the page shorter than the screen (black band under the tabs, Now
+  Playing under the status bar). `--ios-gap` = `screen.height - innerHeight` (standalone, portrait, not typing) extends the tab bar,
+  mini player and Now Playing down over it; Now Playing's top padding now respects the safe area.
 
 ## Roadmap (agreed with the owner; each needs a plan + go-ahead first)
 

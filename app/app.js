@@ -1,6 +1,6 @@
 /* Maré — a Navidrome (Subsonic / OpenSubsonic) web client. */
 'use strict';
-window.MARE_VERSION = '1.5.12';
+window.MARE_VERSION = '1.5.13';
 
 /* ================= Utilities ================= */
 
@@ -1828,6 +1828,19 @@ function start() {
   UI.render();
   window.Discover?.onStart?.();
   if (window.Catalog) setTimeout(() => window.Catalog.ensure().catch(() => {}), 4000);
+}
+
+// iPhone Home Screen app: iOS sometimes opens it with a page shorter than the screen, leaving a black band under
+// the tabs. Measure the missing strip and let the docked bars and Now Playing reach down over it.
+{
+  const fix = () => {
+    const ios = navigator.standalone === true, up = innerHeight > innerWidth;
+    const typing = /^(INPUT|TEXTAREA)$/.test(document.activeElement?.tagName || '');
+    const gap = ios && up && !typing ? Math.max(0, Math.min(200, screen.height - innerHeight)) : 0;
+    document.documentElement.style.setProperty('--ios-gap', gap + 'px');
+  };
+  fix();
+  for (const e of ['resize', 'orientationchange', 'pageshow', 'focusout']) addEventListener(e, () => setTimeout(fix, 100));
 }
 
 (async function boot() {
