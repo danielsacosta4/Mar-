@@ -214,6 +214,10 @@ uses `LANG=C.UTF-8` to avoid locale noise.
 - **1.5.11**: progress bar froze at 0:00 while playing: `UI.scrubbing` stayed true when a drag ended without a `change` event
   (released where it started / interrupted); now also cleared on pointerup/cancel/touchend/blur. iPhone: next song didn't start
   by itself (second element never tapped) → single element on `volLocked` devices.
+- **1.5.12**: AirPods: after an earbud is taken out and put back, iOS resumed the element with no sound. On `volLocked`
+  devices a `pause` Maré didn't cause (`ownPause` stamped by toggle/setSrc/next/media-session pause) sets `sysPaused`; the next
+  `play` (or media-session play) calls `Player.refresh()` = reload at the same position. Log: "paused by headphones or system" /
+  "resumed after headphones".
 
 ## Roadmap (agreed with the owner; each needs a plan + go-ahead first)
 

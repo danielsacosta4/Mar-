@@ -1,6 +1,6 @@
 /* Maré — a Navidrome (Subsonic / OpenSubsonic) web client. */
 'use strict';
-window.MARE_VERSION = '1.5.11';
+window.MARE_VERSION = '1.5.12';
 
 /* ================= Utilities ================= */
 
@@ -89,7 +89,7 @@ const STROKE = {
   settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/>',
 };
 const FILL = {
-  play: '<path d="M7 4.6v14.8a1 1 0 0 0 1.5.116l12.3-7.4a1 1 0 0 0 0-1.72L8.5 3.74A1 1 0 0 0 7 4.6z"/>',
+  play: '<path d="M7 4.6v14.8a1 1 0 0 0 1.5.126l12.3-7.4a1 1 0 0 0 0-1.72L8.5 3.74A1 1 0 0 0 7 4.6z"/>',
   pause: '<rect x="6" y="4" width="4.2" height="16" rx="1.2"/><rect x="13.8" y="4" width="4.2" height="16" rx="1.2"/>',
   next: '<path d="M2.5 6.6v10.8a.8.8 0 0 0 1.25.66L11.5 13v4.4a.8.8 0 0 0 1.25.66l8.3-5.4a.8.8 0 0 0 0-1.33l-8.3-5.4a.8.8 0 0 0-1.25.67V11L3.75 5.94a.8.8 0 0 0-1.25.66z"/>',
   prev: '<path d="M21.5 6.6v10.8a.8.8 0 0 1-1.25.66L12.5 13v4.4a.8.8 0 0 1-1.25.66l-8.3-5.4a.8.8 0 0 1 0-1.33l8.3-5.4a.8.8 0 0 1 1.25.67V11l7.75-5.06a.8.8 0 0 1 1.25.66z"/>',
@@ -430,6 +430,7 @@ const Player = {
     return API.stream(song.id, q ? { format: q.format, maxBitRate: q.kbps, ...(offset >= 1 ? { timeOffset: Math.floor(offset) } : {}) } : null);
   },
   setSrc(el, song, offset = 0) {
+    if (el === this.audio) this.ownPause = Date.now();   // a new source pauses the element: that's us, not the headphones
     el._song = song;
     el._offset = offset >= 1 && this.transcodes(song) ? Math.floor(offset) : 0;
     el.src = this.src(song, el._offset);
@@ -478,8 +479,16 @@ const Player = {
     this.els.forEach((el) => {
       el.preload = 'auto'; el._fade = 1;
       const mine = (fn) => (e) => { if (el === this.audio) fn(e); };
-      el.addEventListener('play', mine(() => this.sync()));
-      el.addEventListener('pause', mine(() => { this.sync(); this.persist(); }));
+      el.addEventListener('play', mine(() => {
+        this.sync();
+        // iPhone: after AirPods are taken out and put back, iOS resumes the player but its sound stays disconnected
+        // (time runs, nothing is heard). Reloading at the same point reconnects it, like pause + play by hand.
+        if (this.sysPaused && this.volLocked) { this.sysPaused = false; this.refresh('resumed after headphones'); }
+      }));
+      el.addEventListener('pause', mine(() => {
+        this.sync(); this.persist();
+        if (this.volLocked && !el.ended && Date.now() - (this.ownPause || 0) > 800) { this.sysPaused = true; this.note('paused by headphones or system'); }
+      }));
       el.addEventListener('playing', mine(() => this.onPlaying()));
       el.addEventListener('timeupdate', mine(() => this.onTime()));
       el.addEventListener('durationchange', mine(() => this.onTime(true)));
@@ -695,16 +704,28 @@ const Player = {
 
   toggle() {
     if (!this.current()) return;
-    if (this.audio.paused) this.audio.play().catch(() => {});
-    else { this.stopFade(); this.audio.pause(); }
+    if (this.audio.paused) { this.sysPaused = false; this.audio.play().catch(() => {}); }
+    else { this.ownPause = Date.now(); this.stopFade(); this.audio.pause(); }
+  },
+
+  // Reload the playing song at the same point and keep playing (reconnects iOS audio after a headphone resume).
+  refresh(why) {
+    const s = this.current(), a = this.audio;
+    if (!s) return;
+    const p = this.pos();
+    this.ownPause = Date.now();
+    this.note(why);
+    this.setSrc(a, s, p);
+    if (!a._offset && p > 0.5) a.addEventListener('loadedmetadata', () => { a.currentTime = p; }, { once: true });
+    a.play().catch(() => {});
   },
 
   next(auto = false, why) {
     if (!this.queue.length) return;
     this.note(why || (auto ? 'ended' : 'next tapped'));
     if (this.index < this.queue.length - 1) { this.index++; this.load(true); }
-    else if (this.repeat === 'all' || !auto) { this.index = 0; this.load(this.repeat === 'all' || !auto); if (!auto && this.repeat !== 'all') this.audio.pause(); }
-    else { this.audio.pause(); this.seek(0); this.sync(); }
+    else if (this.repeat === 'all' || !auto) { this.index = 0; this.load(this.repeat === 'all' || !auto); if (!auto && this.repeat !== 'all') { this.ownPause = Date.now(); this.audio.pause(); } }
+    else { this.ownPause = Date.now(); this.audio.pause(); this.seek(0); this.sync(); }
   },
 
   prev() {
@@ -865,7 +886,8 @@ const Player = {
     if (!('mediaSession' in navigator)) return;
     const ms = navigator.mediaSession;
     const h = {
-      play: () => this.audio.play(), pause: () => { this.stopFade(); this.audio.pause(); },
+      play: () => { if (this.sysPaused && this.volLocked) { this.sysPaused = false; this.refresh('resumed after headphones'); } else this.audio.play(); },
+      pause: () => { this.ownPause = Date.now(); this.stopFade(); this.audio.pause(); },
       previoustrack: () => this.prev(), nexttrack: () => this.next(false, 'headset / media key'),
       seekto: (e) => { if (e.seekTime != null) this.seek(e.seekTime); },
       seekbackward: () => { this.seek(this.pos() - 10); },
