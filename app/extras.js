@@ -184,6 +184,8 @@ const Playlists = {
 /* ================= Drag to reorder ================= */
 
 function sortable(container, { item, handle, scroller, canDrop = () => true, onDrop }) {
+  // iOS: keep a finger on the grip from scrolling the page instead of dragging the row.
+  container.addEventListener('touchstart', (e) => { if (e.target.closest(handle)) e.preventDefault(); }, { passive: false });
   container.addEventListener('pointerdown', (e) => {
     const h = e.target.closest(handle);
     if (!h || !container.contains(h) || e.button > 0) return;
@@ -281,12 +283,16 @@ const Offline = {
       return;
     }
     const key = `${kind}:${id}`;
-    if (this.jobs.has(key)) return;
+    if (this.jobs.has(key)) { toast('Already downloading'); return; }
+    this.jobs.set(key, { done: 0, total: 0, bytes: 0 });
+    this.paint(key);
+    toast('Starting download…');
     let name, artist = '', coverArt, songs;
     if (kind === 'album') { const r = await albumSongs(id); name = r.album.name; artist = r.album.artist; coverArt = r.album.coverArt; songs = r.songs; }
     else if (kind === 'playlist') { const r = await API.call('getPlaylist', { id }); name = r.playlist.name; coverArt = r.playlist.coverArt; songs = register(r.playlist.entry || []); }
-    else return;
-    if (!songs.length) return;
+    else { this.jobs.delete(key); return; }
+    if (!songs.length) { this.jobs.delete(key); this.paint(key); return; }
+    toast(`Downloading ${name} · ${songs.length} song${songs.length === 1 ? '' : 's'}. You can keep browsing.`);
     try { await navigator.storage?.persist?.(); } catch { /* ignore */ }
     const job = { done: 0, total: songs.length, bytes: 0 };
     this.jobs.set(key, job);
@@ -352,7 +358,7 @@ const Offline = {
     const has = this.has(key);
     $$(`[data-dl="${CSS.escape(key)}"]`).forEach((b) => {
       b.classList.toggle('on', has && !job);
-      b.innerHTML = job ? `<span class="dl-ring" style="--p:${Math.round((job.done / job.total) * 100)}%"></span>${job.done}/${job.total}`
+      b.innerHTML = job ? (job.total ? `<span class="dl-ring" style="--p:${Math.round((job.done / job.total) * 100)}%"></span>${job.done}/${job.total}` : `<span class="dl-ring" style="--p:0%"></span>Starting…`)
         : has ? `${icon('check')}Downloaded` : `${icon('download')}Download`;
       b.disabled = !!job;
     });
@@ -372,9 +378,13 @@ const Offline = {
     if (v && !bar) {
       bar = document.createElement('div');
       bar.id = 'offline-bar'; bar.className = 'offline-bar';
-      bar.innerHTML = `${icon('cloudOff')}<span>You're offline. Your downloads still play.</span><a href="#/downloads">Downloads</a>`;
+      bar.innerHTML = `${icon('cloudOff')}<span>You're offline. Your downloads still play.</span><a href="#/downloads">Downloads</a><button class="ob-close" aria-label="Hide">×</button>`;
+      $('.ob-close', bar).onclick = () => bar.remove();
       document.body.appendChild(bar);
     }
+    // Keep checking quietly, so the notice goes away by itself once the server answers again.
+    clearInterval(this._retry);
+    if (v) this._retry = setInterval(() => API.call('ping').catch(() => {}), 15000);
     if (!v) { bar?.remove(); Player.flushScrobbles(); }
   },
 };
@@ -428,6 +438,7 @@ function offlineItemView(main, key) {
 })();
 window.addEventListener('online', () => API.call('ping').catch(() => {}));
 window.addEventListener('offline', () => Offline.setOffline(true));
+document.addEventListener('visibilitychange', () => { if (!document.hidden && Offline.offline) API.call('ping').catch(() => {}); });
 
 // Render: offline fallback, auto "load more", page decorations.
 (() => {

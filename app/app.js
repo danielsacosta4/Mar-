@@ -1,6 +1,6 @@
 /* Maré — a Navidrome (Subsonic / OpenSubsonic) web client. */
 'use strict';
-window.MARE_VERSION = '1.5.10';
+window.MARE_VERSION = '1.5.14';
 
 /* ================= Utilities ================= */
 
@@ -89,7 +89,7 @@ const STROKE = {
   settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/>',
 };
 const FILL = {
-  play: '<path d="M7 4.6v14.8a1 1 0 0 0 1.5.106l12.3-7.4a1 1 0 0 0 0-1.72L8.5 3.74A1 1 0 0 0 7 4.6z"/>',
+  play: '<path d="M7 4.6v14.8a1 1 0 0 0 1.5.126l12.3-7.4a1 1 0 0 0 0-1.72L8.5 3.74A1 1 0 0 0 7 4.6z"/>',
   pause: '<rect x="6" y="4" width="4.2" height="16" rx="1.2"/><rect x="13.8" y="4" width="4.2" height="16" rx="1.2"/>',
   next: '<path d="M2.5 6.6v10.8a.8.8 0 0 0 1.25.66L11.5 13v4.4a.8.8 0 0 0 1.25.66l8.3-5.4a.8.8 0 0 0 0-1.33l-8.3-5.4a.8.8 0 0 0-1.25.67V11L3.75 5.94a.8.8 0 0 0-1.25.66z"/>',
   prev: '<path d="M21.5 6.6v10.8a.8.8 0 0 1-1.25.66L12.5 13v4.4a.8.8 0 0 1-1.25.66l-8.3-5.4a.8.8 0 0 1 0-1.33l8.3-5.4a.8.8 0 0 1 1.25.67V11l7.75-5.06a.8.8 0 0 1 1.25.66z"/>',
@@ -430,6 +430,7 @@ const Player = {
     return API.stream(song.id, q ? { format: q.format, maxBitRate: q.kbps, ...(offset >= 1 ? { timeOffset: Math.floor(offset) } : {}) } : null);
   },
   setSrc(el, song, offset = 0) {
+    if (el === this.audio) this.ownPause = Date.now();   // a new source pauses the element: that's us, not the headphones
     el._song = song;
     el._offset = offset >= 1 && this.transcodes(song) ? Math.floor(offset) : 0;
     el.src = this.src(song, el._offset);
@@ -478,8 +479,16 @@ const Player = {
     this.els.forEach((el) => {
       el.preload = 'auto'; el._fade = 1;
       const mine = (fn) => (e) => { if (el === this.audio) fn(e); };
-      el.addEventListener('play', mine(() => this.sync()));
-      el.addEventListener('pause', mine(() => { this.sync(); this.persist(); }));
+      el.addEventListener('play', mine(() => {
+        this.sync();
+        // iPhone: after AirPods are taken out and put back, iOS resumes the player but its sound stays disconnected
+        // (time runs, nothing is heard). Reloading at the same point reconnects it, like pause + play by hand.
+        if (this.sysPaused && this.volLocked) { this.sysPaused = false; this.refresh('resumed after headphones'); }
+      }));
+      el.addEventListener('pause', mine(() => {
+        this.sync(); this.persist();
+        if (this.volLocked && !el.ended && Date.now() - (this.ownPause || 0) > 800) { this.sysPaused = true; this.note('paused by headphones or system'); }
+      }));
       el.addEventListener('playing', mine(() => this.onPlaying()));
       el.addEventListener('timeupdate', mine(() => this.onTime()));
       el.addEventListener('durationchange', mine(() => this.onTime(true)));
@@ -595,7 +604,7 @@ const Player = {
     this.resetTrackState();
     const a = this.audio;
     // Reuse the preloaded element if it already holds this song.
-    if (this.preId === s.id && this.spare.getAttribute('src')) {
+    if (!this.volLocked && this.preId === s.id && this.spare.getAttribute('src')) {
       a.pause(); a.removeAttribute('src'); a._song = null;
       this.cur = 1 - this.cur;
     } else {
@@ -636,6 +645,9 @@ const Player = {
   // Runs every 100 ms: preloads the next song and starts it on time.
   tick() {
     const a = this.audio;
+    // iPhone/iPad only let an audio player start on its own once it has been tapped, so the second (preloading)
+    // player couldn't start the next song. There (no crossfade anyway) every song plays in the same player.
+    if (this.volLocked) return;
     if (a.paused || this.fade || !this.current()) return;
     const d = this.dur();
     if (!d) return;
@@ -692,16 +704,28 @@ const Player = {
 
   toggle() {
     if (!this.current()) return;
-    if (this.audio.paused) this.audio.play().catch(() => {});
-    else { this.stopFade(); this.audio.pause(); }
+    if (this.audio.paused) { this.sysPaused = false; this.audio.play().catch(() => {}); }
+    else { this.ownPause = Date.now(); this.stopFade(); this.audio.pause(); }
+  },
+
+  // Reload the playing song at the same point and keep playing (reconnects iOS audio after a headphone resume).
+  refresh(why) {
+    const s = this.current(), a = this.audio;
+    if (!s) return;
+    const p = this.pos();
+    this.ownPause = Date.now();
+    this.note(why);
+    this.setSrc(a, s, p);
+    if (!a._offset && p > 0.5) a.addEventListener('loadedmetadata', () => { a.currentTime = p; }, { once: true });
+    a.play().catch(() => {});
   },
 
   next(auto = false, why) {
     if (!this.queue.length) return;
     this.note(why || (auto ? 'ended' : 'next tapped'));
     if (this.index < this.queue.length - 1) { this.index++; this.load(true); }
-    else if (this.repeat === 'all' || !auto) { this.index = 0; this.load(this.repeat === 'all' || !auto); if (!auto && this.repeat !== 'all') this.audio.pause(); }
-    else { this.audio.pause(); this.seek(0); this.sync(); }
+    else if (this.repeat === 'all' || !auto) { this.index = 0; this.load(this.repeat === 'all' || !auto); if (!auto && this.repeat !== 'all') { this.ownPause = Date.now(); this.audio.pause(); } }
+    else { this.ownPause = Date.now(); this.audio.pause(); this.seek(0); this.sync(); }
   },
 
   prev() {
@@ -862,12 +886,12 @@ const Player = {
     if (!('mediaSession' in navigator)) return;
     const ms = navigator.mediaSession;
     const h = {
-      play: () => this.audio.play(), pause: () => { this.stopFade(); this.audio.pause(); },
+      play: () => { if (this.sysPaused && this.volLocked) { this.sysPaused = false; this.refresh('resumed after headphones'); } else this.audio.play(); },
+      pause: () => { this.ownPause = Date.now(); this.stopFade(); this.audio.pause(); },
       previoustrack: () => this.prev(), nexttrack: () => this.next(false, 'headset / media key'),
       seekto: (e) => { if (e.seekTime != null) this.seek(e.seekTime); },
-      seekbackward: () => { this.seek(this.pos() - 10); },
-      seekforward: () => { this.seek(this.pos() + 10); },
     };
+    // No seekbackward/seekforward: when they're set, iOS shows ±10 s on the lock screen instead of previous/next.
     for (const [k, fn] of Object.entries(h)) { try { ms.setActionHandler(k, fn); } catch { /* unsupported */ } }
   },
 };
@@ -1425,16 +1449,21 @@ async function searchResults(q) {
   const r = await API.call('search3', { query: q, artistCount: 12, albumCount: 18, songCount: 30 });
   if (($('#search-form input')?.value.trim() || '') !== q) return;
   const res = r.searchResult3 || {};
-  const ar = res.artist || [], al = res.album || [], so = res.song || [];
+  // Navidrome matches anywhere in the name, in no useful order: put exact matches first, then names that start with
+  // the search, then a word that does, then the rest; most played first within each.
+  const fold = (x) => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+  const fq = fold(q);
+  const rank = (name) => { const n = fold(name); return n === fq ? 0 : n.startsWith(fq) ? 1 : (' ' + n).includes(' ' + fq) ? 2 : 3; };
+  const order = (list, name) => list.map((x, i) => ({ x, i, r: rank(name(x)) }))
+    .sort((a, b) => a.r - b.r || (b.x.playCount || 0) - (a.x.playCount || 0) || a.i - b.i).map((o) => o.x);
+  const ar = order(res.artist || [], (a) => a.name), al = order(res.album || [], (a) => a.name), so = order(res.song || [], (s) => s.title);
   if (!ar.length && !al.length && !so.length) {
     box.innerHTML = `<div class="empty"><h3>No results for “${esc(q)}”</h3><p>Check the spelling or try a shorter search.</p></div>`;
     return;
   }
   // Top result: an exact artist match beats an album, which beats a song.
-  const lq = q.toLowerCase();
-  let top = ar.find((a) => a.name.toLowerCase() === lq) ? { kind: 'artist', v: ar.find((a) => a.name.toLowerCase() === lq) }
-    : al.find((a) => a.name.toLowerCase() === lq) ? { kind: 'album', v: al.find((a) => a.name.toLowerCase() === lq) }
-      : ar[0] ? { kind: 'artist', v: ar[0] } : al[0] ? { kind: 'album', v: al[0] } : { kind: 'song', v: so[0] };
+  const top = [ar[0] && { kind: 'artist', v: ar[0], r: rank(ar[0].name) }, al[0] && { kind: 'album', v: al[0], r: rank(al[0].name) },
+    so[0] && { kind: 'song', v: so[0], r: rank(so[0].title) }].filter(Boolean).sort((a, b) => a.r - b.r)[0];
   const t = top.v;
   const topHtml = `<a class="top-result" href="${top.kind === 'artist' ? '#/artist/' + esc(t.id) : top.kind === 'album' ? '#/album/' + esc(t.id) : '#/album/' + esc(t.albumId)}">
       <div class="art${top.kind === 'artist' ? '" style="border-radius:50%' : ''}">${artImg(t.coverArt, 200)}</div>
@@ -1709,7 +1738,11 @@ function wireRanges() {
       $$('.p-cur').forEach((x) => { x.textContent = fmtTime(f * d); });
     };
     r.addEventListener('input', () => { UI.scrubbing = true; preview(); });
-    r.addEventListener('change', () => { Player.seekFraction(r.value / 1000); UI.scrubbing = false; });
+    // Browsers skip "change" when the bar is let go where it started, or when a drag is interrupted; without the
+    // fallbacks the progress bar stayed frozen (at 0:00 on every next song) while the music played on.
+    const done = () => { if (!UI.scrubbing) return; UI.scrubbing = false; Player.seekFraction(r.value / 1000); };
+    r.addEventListener('change', done);
+    ['pointerup', 'pointercancel', 'touchend', 'touchcancel', 'blur'].forEach((ev) => r.addEventListener(ev, () => setTimeout(done, 0)));
   });
   $$('.volume').forEach((v) => {
     v.addEventListener('input', () => { Player.setVolume(v.value / 100); UI.syncPlayer(); });
@@ -1799,6 +1832,19 @@ function start() {
   UI.render();
   window.Discover?.onStart?.();
   if (window.Catalog) setTimeout(() => window.Catalog.ensure().catch(() => {}), 4000);
+}
+
+// iPhone Home Screen app: iOS sometimes opens it with a page shorter than the screen, leaving a black band under
+// the tabs. Measure the missing strip and let the docked bars and Now Playing reach down over it.
+{
+  const fix = () => {
+    const ios = navigator.standalone === true, up = innerHeight > innerWidth;
+    const typing = /^(INPUT|TEXTAREA)$/.test(document.activeElement?.tagName || '');
+    const gap = ios && up && !typing ? Math.max(0, Math.min(200, screen.height - innerHeight)) : 0;
+    document.documentElement.style.setProperty('--ios-gap', gap + 'px');
+  };
+  fix();
+  for (const e of ['resize', 'orientationchange', 'pageshow', 'focusout']) addEventListener(e, () => setTimeout(fix, 100));
 }
 
 (async function boot() {

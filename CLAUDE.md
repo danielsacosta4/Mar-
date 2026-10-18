@@ -84,7 +84,9 @@ so every patch is in place before the first render (offline, the ping fails fast
   like MP3 at ~2× the bitrate and has no MP3 encoder gaps), MP3 320 / 192 / 128. Devices that can't play Ogg Opus
   (`CAN_OPUS`, e.g. iOS < 17) get the paired MP3 (Opus 128 → MP3 320, Opus 96 → MP3 192). Downloads use the same specs.
   Volume = user volume × ReplayGain (track/album/auto, peak-limited, never above 1) × fade factor.
-  iOS/iPadOS can't set element volume (`Player.volLocked`), so crossfade and levelling are disabled there.
+  iOS/iPadOS can't set element volume (`Player.volLocked`), so crossfade and levelling are disabled there. Since 1.5.11 those
+  devices also use ONE element for everything (`tick()` returns early, `load()` never swaps to the spare): iOS only lets an
+  element start without a tap once it has been tapped, so the spare couldn't start the next song.
 - **Scrobbling**: `scrobble` (now playing + submission after half the song or 4 min of real listening).
   Failed submissions are queued in localStorage and flushed when back online. ListenBrainz receives plays via
   Navidrome's own ListenBrainz integration.
@@ -209,6 +211,22 @@ uses `LANG=C.UTF-8` to avoid locale noise.
   handler now calls the same `Player.resume()` (reload at the position; ≤3 tries per song, only with progress) before skipping.
   Log entries: "error N, resuming" / "skipped after error".
 - **1.5.10**: "Your Collection Over Time" chart on the Collection page.
+- **1.5.11**: progress bar froze at 0:00 while playing: `UI.scrubbing` stayed true when a drag ended without a `change` event
+  (released where it started / interrupted); now also cleared on pointerup/cancel/touchend/blur. iPhone: next song didn't start
+  by itself (second element never tapped) → single element on `volLocked` devices.
+- **1.5.12**: AirPods: after an earbud is taken out and put back, iOS resumed the element with no sound. On `volLocked`
+  devices a `pause` Maré didn't cause (`ownPause` stamped by toggle/setSrc/next/media-session pause) sets `sysPaused`; the next
+  `play` (or media-session play) calls `Player.refresh()` = reload at the same position. Log: "paused by headphones or system" /
+  "resumed after headphones".
+- **1.5.13**: iPhone Home Screen app sometimes opened with the page shorter than the screen (black band under the tabs, Now
+  Playing under the status bar). `--ios-gap` = `screen.height - innerHeight` (standalone, portrait, not typing) extends the tab bar,
+  mini player and Now Playing down over it; Now Playing's top padding now respects the safe area.
+- **1.5.14**: from the owner's scorecard. Lock screen shows previous/next (no seekbackward/seekforward handlers; iOS shows ±10 s
+  when they exist). Playlist reordering by touch: grips are 34×44 on phones, a touchstart on a grip is prevented (no page
+  scroll) and doesn't start the long-press menu. Downloads toast at once ("Starting download…", then "Downloading X · N songs")
+  and the button shows "Starting…" before the progress ring. Offline bar: × to hide it, and a ping every 15 s (and on
+  returning to the app) so it clears itself. Search results re-ranked: exact > starts with > a word starts with > rest, then play count;
+  Top Result = best-ranked of artist / album / song (artist wins ties).
 
 ## Roadmap (agreed with the owner; each needs a plan + go-ahead first)
 
