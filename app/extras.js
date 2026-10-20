@@ -432,7 +432,7 @@ function offlineItemView(main, key) {
 (() => {
   const call = API.call.bind(API);
   API.call = async (...args) => {
-    try { const r = await call(...args); Offline.setOffline(false); return r; }
+    try { const r = await call(...args); Offline.setOffline(!!r?.fromMemory || navigator.onLine === false); return r; }
     catch (e) { if (e.code === 0) Offline.setOffline(true); throw e; }
   };
 })();
@@ -594,6 +594,8 @@ songMenu = function (anchor, s) {
         <div class="set-actions"><select class="select" data-pref="quality">${[['original', 'Original'], ['opus128', 'Opus 128'], ['opus96', 'Opus 96'], ['high', 'MP3 320'], ['normal', 'MP3 192'], ['low', 'MP3 128']].map(([v, l]) => `<option value="${v}"${Prefs.get('quality') === v ? ' selected' : ''}>${l}</option>`).join('')}</select></div></div>
       <div class="set-row"><div><h3>Download quality</h3><p>Original keeps lossless files (large: an album can be 1–2 GB in hi-res). Opus 128 is about half the size of MP3 320 at the same sound quality.</p></div>
         <div class="set-actions"><select class="select" data-pref="dlQuality">${[['opus128', 'Opus 128'], ['high', 'MP3 320'], ['original', 'Original']].map(([v, l]) => `<option value="${v}"${Prefs.get('dlQuality') === v ? ' selected' : ''}>${l}</option>`).join('')}</select></div></div>
+      <div class="set-row"><div><h3>Save the next songs ahead</h3><p>${Offline.supported ? 'While a song plays, the next 3 are saved on this device one at a time, so the music keeps going if the connection drops. Uses your streaming quality (Original FLACs can be 30–100 MB each); the last 10 are kept.' : 'Needs the secure (HTTPS) address, like downloads.'}</p></div>
+        <label class="switch"><input type="checkbox" data-pref="ahead" ${Ahead.on() ? 'checked' : ''} ${Offline.supported ? '' : 'disabled'}><span></span></label></div>
       <div class="set-row"><div><h3>Playback log</h3><p>Why each song changed, newest first. If a song ever skips by itself, the reason shows up here.</p></div>
         <div class="set-actions"><button class="btn" data-playlog>Show</button></div></div>
       <div class="playlog" hidden></div>
@@ -617,6 +619,7 @@ songMenu = function (anchor, s) {
       if (k === 'crossfade') el.nextElementSibling.textContent = v ? `${v} s` : 'Off';
       if (k === 'rg') Player.applyVolume();
       if (k === 'quality') Player.setQuality(v);
+      if (k === 'ahead') { if (v) Ahead.run(); else Ahead.clear(); }
     });
   };
 })();
@@ -711,3 +714,54 @@ Offline.register();
 if (navigator.onLine === false) Offline.setOffline(true);
 window.Offline = Offline;
 window.Playlists = Playlists;
+
+/* ================= Next songs saved ahead =================
+   While a song plays, the next 3 of the queue are saved one at a time (after the playing song has loaded), so a dropped
+   connection doesn't stop the music. The service worker plays them from the "mare-ahead" cache; about 10 are kept. */
+const Ahead = {
+  CACHE: 'mare-ahead', NEXT: 3, KEEP: 10,
+  busy: false, since: 0,
+  on() { return Prefs.get('ahead') !== false && Offline.supported; },
+  key(id) {
+    const q = qualitySpec(Prefs.get('quality'));
+    return `/ahead/${id}/${q ? q.format : ''}/${q ? q.kbps : ''}`;
+  },
+  list() { return store.get('ahead') || []; },
+  // The playing song has loaded far enough that saving the next ones won't compete with it.
+  ready() {
+    const a = Player.audio, d = Player.dur(), b = a.buffered;
+    if (Offline.offline || !Player.current()) return false;
+    if (Date.now() - this.since > 30000) return true;
+    return !!(b.length && d && b.end(b.length - 1) + (a._offset || 0) >= d - 2);
+  },
+  async run() {
+    if (this.busy || !this.on() || !this.ready()) return;
+    const next = Player.queue.slice(Player.index + 1, Player.index + 1 + this.NEXT);
+    const d = Offline.db();
+    this.busy = true;
+    try {
+      const cache = await caches.open(this.CACHE);
+      for (const s of next) {
+        if (d.songs[s.id] || await cache.match(this.key(s.id))) continue;
+        if (!this.on() || Offline.offline) break;
+        const q = qualitySpec(Prefs.get('quality'));
+        const r = await fetch(API.stream(s.id, q ? { format: q.format, maxBitRate: q.kbps } : null));
+        if (!r.ok) continue;
+        const blob = await r.blob();
+        await cache.put(this.key(s.id), new Response(blob, { headers: { 'Content-Type': r.headers.get('Content-Type') || 'audio/mpeg', 'Content-Length': blob.size } }));
+        const l = this.list().filter((k) => k !== this.key(s.id)); l.push(this.key(s.id));
+        // Forget the oldest, but never one of the songs coming up.
+        const keepNow = new Set(next.map((x) => this.key(x.id)));
+        while (l.length > this.KEEP) { const i = l.findIndex((k) => !keepNow.has(k)); if (i < 0) break; await cache.delete(l.splice(i, 1)[0]); }
+        store.set('ahead', l);
+      }
+    } catch { /* connection trouble: try again later */ } finally { this.busy = false; }
+  },
+  async clear() { store.del('ahead'); try { await caches.delete(this.CACHE); } catch { /* ignore */ } },
+};
+{
+  const playing = Player.onPlaying.bind(Player);
+  Player.onPlaying = function () { Ahead.since = Date.now(); playing(); setTimeout(() => Ahead.run(), 3000); };
+  setInterval(() => { if (!Player.audio.paused) Ahead.run(); }, 10000);
+}
+window.Ahead = Ahead;

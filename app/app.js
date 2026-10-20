@@ -1,6 +1,6 @@
 /* Maré — a Navidrome (Subsonic / OpenSubsonic) web client. */
 'use strict';
-window.MARE_VERSION = '1.5.14';
+window.MARE_VERSION = '1.5.15';
 
 /* ================= Utilities ================= */
 
@@ -118,7 +118,7 @@ const API = {
     return true;
   },
   save() { store.set('session', { base: this.base, user: this.user, token: this.token, salt: this.salt }); },
-  clear() { store.del('session'); this.user = this.token = this.salt = ''; },
+  clear() { store.del('session'); this.user = this.token = this.salt = ''; try { caches.delete('mare-pages'); } catch { /* ignore */ } },
 
   params(extra = {}) {
     const p = new URLSearchParams({ u: this.user, t: this.token, s: this.salt, v: '1.16.1', c: this.CLIENT, f: 'json' });
@@ -148,7 +148,8 @@ const API = {
       const err = body?.error || {};
       throw new ApiError(err.message || 'Request failed.', err.code);
     }
-    if (cache) this.cache.set(key, { t: Date.now(), v: body });
+    if (res.headers.get('X-Mare-Offline')) Object.defineProperty(body, 'fromMemory', { value: true }); // service worker, server unreachable
+    else if (cache) this.cache.set(key, { t: Date.now(), v: body });
     return body;
   },
   bust() { this.cache.clear(); },
@@ -476,6 +477,12 @@ const Player = {
   init() {
     // iOS doesn't let pages change an element's volume; crossfade and levelling need it.
     try { const t = new Audio(); t.volume = 0.5; this.volLocked = t.volume !== 0.5; } catch { this.volLocked = true; }
+    // iOS 17+: say this is a music player, so the sound keeps working on the lock screen (like a music app).
+    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch { /* unsupported */ }
+    // Unlocking while "playing" with the sound cut off: reconnect it.
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && this.volLocked && !this.audio.paused && this.sessionOff()) this.refresh('sound was off after unlocking, reconnecting');
+    });
     this.els.forEach((el) => {
       el.preload = 'auto'; el._fade = 1;
       const mine = (fn) => (e) => { if (el === this.audio) fn(e); };
@@ -709,16 +716,33 @@ const Player = {
   },
 
   // Reload the playing song at the same point and keep playing (reconnects iOS audio after a headphone resume).
-  refresh(why) {
+  refresh(why, tries = 0) {
     const s = this.current(), a = this.audio;
     if (!s) return;
     const p = this.pos();
     this.ownPause = Date.now();
-    this.note(why);
+    this.note(`${why} (${document.hidden ? 'locked' : 'open'}${navigator.audioSession ? ', sound ' + navigator.audioSession.state : ''})`);
     this.setSrc(a, s, p);
     if (!a._offset && p > 0.5) a.addEventListener('loadedmetadata', () => { a.currentTime = p; }, { once: true });
     a.play().catch(() => {});
+    // Check that it really plays: time must move and iOS must report the sound as on. If not, pause + play
+    // (what fixes it by hand), and once more a reload.
+    clearTimeout(this._check);
+    this._check = setTimeout(() => {
+      if (this.current() !== s || a.paused || tries > 1) return;
+      const stuck = this.pos() < p + 1;
+      if (!stuck && !this.sessionOff()) { if (tries) this.note('sound back'); return; }
+      if (tries === 0) {
+        this.note(`no sound after resume (${stuck ? 'not moving' : 'sound ' + navigator.audioSession.state}), pause + play`);
+        this.ownPause = Date.now(); a.pause();
+        setTimeout(() => { a.play().catch(() => {}); this._check = setTimeout(() => {
+          if (this.current() === s && !a.paused && (this.pos() < p + 1.5 || this.sessionOff())) this.refresh('still no sound, reloading', 2);
+          else this.note('sound back');
+        }, 2500); }, 300);
+      }
+    }, 2500);
   },
+  sessionOff() { const st = navigator.audioSession?.state; return !!st && st !== 'active'; },
 
   next(auto = false, why) {
     if (!this.queue.length) return;
