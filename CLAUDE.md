@@ -227,6 +227,15 @@ uses `LANG=C.UTF-8` to avoid locale noise.
   and the button shows "Starting…" before the progress ring. Offline bar: × to hide it, and a ping every 15 s (and on
   returning to the app) so it clears itself. Search results re-ranked: exact > starts with > a word starts with > rest, then play count;
   Top Result = best-ranked of artist / album / song (artist wins ties).
+- **1.5.15**: (iPhone on iOS 26.6.1.) AirPods resume with the phone locked still had no sound: `navigator.audioSession.type =
+  'playback'`; `refresh()` now checks 2.5 s later (time moving and `audioSession.state === 'active'`), else pause + play, else
+  one more reload; log entries say locked/open and the sound state; unlocking while "playing" with the session off reconnects.
+  Next songs ahead (`Ahead`, extras.js, Settings switch `ahead`, default on): after the playing song has buffered (or 30 s),
+  the next 3 are fetched one at a time at streaming quality into cache `mare-ahead` (`/ahead/<id>/<format>/<kbps>`, last 10 kept);
+  sw.js serves them for stream requests without timeOffset. sw.js also keeps every cover (`mare-covers`, `/covers/<id>/<size>`,
+  ~3000) and answers library reads (`PAGE_CALLS`, not random lists) from `mare-pages` at once while refreshing in the background;
+  any change call (playlist edits, star, setRating, startScan) or logout clears it. When the server can't be reached within
+  300 ms the remembered page is returned with `X-Mare-Offline`, and `API.call` marks it `fromMemory` so the offline notice shows.
 
 ## Roadmap (agreed with the owner; each needs a plan + go-ahead first)
 
