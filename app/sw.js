@@ -1,5 +1,5 @@
 /* Maré service worker: keeps the app usable offline and plays downloaded songs. */
-const VERSION = '1.5.15';
+const VERSION = '1.5.17';
 const SHELL = 'mare-shell-' + VERSION;
 const AUDIO = 'mare-audio';
 const ART = 'mare-art';
@@ -124,7 +124,7 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  if (path.startsWith('/rest/') || path.startsWith('/lb/') || path.startsWith('/mb/')) return;
+  if (path.startsWith('/rest/') || path.startsWith('/lb/') || path.startsWith('/mb/') || path.startsWith('/mbo/')) return;
 
   // App files: network first so updates show up straight away, cache when offline.
   e.respondWith((async () => {

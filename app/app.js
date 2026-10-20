@@ -1,6 +1,6 @@
 /* Maré — a Navidrome (Subsonic / OpenSubsonic) web client. */
 'use strict';
-window.MARE_VERSION = '1.5.15';
+window.MARE_VERSION = '1.5.17';
 
 /* ================= Utilities ================= */
 
@@ -118,7 +118,7 @@ const API = {
     return true;
   },
   save() { store.set('session', { base: this.base, user: this.user, token: this.token, salt: this.salt }); },
-  clear() { store.del('session'); this.user = this.token = this.salt = ''; try { caches.delete('mare-pages'); } catch { /* ignore */ } },
+  clear() { store.del('session'); store.del('front'); this.user = this.token = this.salt = ''; try { caches.delete('mare-pages'); } catch { /* ignore */ } },
 
   params(extra = {}) {
     const p = new URLSearchParams({ u: this.user, t: this.token, s: this.salt, v: '1.16.1', c: this.CLIENT, f: 'json' });
@@ -319,7 +319,7 @@ function trackRows(songs, { art = false, album = true, numbers = 'track', discs 
       ${lead}
       <div class="t-main">
         <div class="t-title">${esc(s.title)}<span class="t-rating">${s.userRating ? '★'.repeat(s.userRating) : ''}</span></div>
-        <div class="t-sub">${s.artistId ? `<a href="#/artist/${esc(s.artistId)}" data-stop>${esc(s.artist)}</a>` : esc(s.artist || '')}</div>
+        <div class="t-sub">${s.artistId ? `<a href="#/artist/${esc(s.artistId)}" data-stop>${esc(s.artist)}</a>` : esc(s.artist || '')}${s.playCount ? `<span class="t-plays"> · ${plural(s.playCount, 'play')}</span>` : ''}</div>
       </div>
       ${art && album ? `<a class="t-album" href="#/album/${esc(s.albumId)}" data-stop>${esc(s.album || '')}</a>` : ''}
       <button class="t-heart${s.starred ? ' on' : ''}" data-act="star" data-id="${esc(s.id)}" aria-label="Favorite">${heartIcon(!!s.starred)}</button>
@@ -911,7 +911,12 @@ const Player = {
     const ms = navigator.mediaSession;
     const h = {
       play: () => { if (this.sysPaused && this.volLocked) { this.sysPaused = false; this.refresh('resumed after headphones'); } else this.audio.play(); },
-      pause: () => { this.ownPause = Date.now(); this.stopFade(); this.audio.pause(); },
+      // Locked iPhone: taking an earbud out arrives here (not as a plain pause), so treat it like the headphone pause
+      // and reconnect the sound on the next play. A lock-screen pause tap gets the same harmless reload.
+      pause: () => {
+        this.ownPause = Date.now(); this.stopFade(); this.audio.pause();
+        if (this.volLocked) { this.sysPaused = true; this.note(`paused from lock screen or headphones (${document.hidden ? 'locked' : 'open'})`); }
+      },
       previoustrack: () => this.prev(), nexttrack: () => this.next(false, 'headset / media key'),
       seekto: (e) => { if (e.seekTime != null) this.seek(e.seekTime); },
     };
@@ -1021,18 +1026,24 @@ View.home = async (main) => {
 
   window.Discover?.home($('#home-discover')).catch(() => {});
   const weekly = window.Discover?.weekly ? window.Discover.weekly().catch(() => null) : Promise.resolve(null);
+  const pRecent = albums('recent', 24).catch(() => []), pNewest = albums('newest', 24).catch(() => []), pFrequent = albums('frequent', 60).catch(() => []);
+  // The front page from last time, at once; the fresh one replaces it as soon as it's ready (not waiting for the rest).
+  const homeRoute = UI.route, saved = store.get('front');
+  if (saved?.lists) { if (saved.w?.songs) register(saved.w.songs.map((x) => x.song)); renderFront(saved.w, saved.lists); }
+  Promise.all([weekly, pRecent, pNewest, pFrequent]).then(([w, recent, newest, frequent]) => {
+    if (UI.route !== homeRoute) return;
+    const lists = { recent, newest, frequent };
+    renderFront(w, lists);
+    store.set('front', { w, lists: { recent: recent.slice(0, 24), newest: newest.slice(0, 8), frequent: frequent.slice(0, 30) } });
+  });
   const [recent, newest, frequent, random, starred, genres, highest] = await Promise.all([
-    albums('recent', 24).catch(() => []),
-    albums('newest', 24).catch(() => []),
-    albums('frequent', 60).catch(() => []),
+    pRecent, pNewest, pFrequent,
     albums('random', 24).catch(() => []),
     albums('starred', 24).catch(() => []),
     API.call('getGenres', {}, { cache: 10 * MIN }).then((r) => r.genres?.genre || []).catch(() => []),
     albums('highest', 24).then((l) => l.filter((a) => a.userRating)).catch(() => []),
   ]);
   if (UI.route.name !== 'home') return;
-  const route = UI.route;
-  weekly.then((w) => { if (UI.route === route) renderFront(w, { recent, newest, frequent }); });
 
   // Rediscover: albums you played a lot, but not lately.
   const recentIds = new Set(recent.map((a) => a.id));
@@ -1127,7 +1138,7 @@ function renderFront(w, { recent, newest, frequent }) {
   }
   box.classList.remove('skel-front');
   box.innerHTML = `<div class="feature">
-      <a class="art" href="#/album/${esc(album.id)}">${artImg(album.coverArt, 600, album.name)}</a>
+      <a class="art" href="#/album/${esc(album.id)}">${artImg(album.coverArt, 600, album.name).replace('loading="lazy"', 'fetchpriority="high"')}</a>
       <div class="feature-text">
         <span class="label">${esc(kicker)}</span>
         <h2 class="feature-title cond"><a href="#/album/${esc(album.id)}">${esc(album.name)}</a></h2>
@@ -1185,7 +1196,8 @@ View.album = async (main, params, id) => {
   if (starred) UI.starredAlbums.add(a.id); else UI.starredAlbums.delete(a.id);
   const total = songs.reduce((t, s) => t + (s.duration || 0), 0);
   const genre = a.genre || songs.find((s) => s.genre)?.genre;
-  const meta = [a.year, genre].filter(Boolean).join(' · ');
+  const plays = songs.reduce((t, s) => t + (s.playCount || 0), 0);
+  const meta = [a.year, genre, plays && `played ${plural(plays, 'time')}`].filter(Boolean).join(' · ');
   main.innerHTML = `<article class="sleeve">
       <header class="sleeve-front">
         <div class="art">${artImg(a.coverArt, 600, a.name)}</div>
@@ -1586,7 +1598,7 @@ const UI = {
       $('.np-bg img').src = art;
       $('.np-title').textContent = s ? s.title : '';
       const npA = $('.np-artist');
-      npA.textContent = s ? `${s.artist || ''}${s.album ? ' — ' + s.album : ''}` : '';
+      npA.textContent = s ? `${s.artist || ''}${s.album ? ' — ' + s.album : ''}${s.playCount ? ' · ' + plural(s.playCount, 'play') : ''}` : '';
       npA.href = s?.artistId ? '#/artist/' + s.artistId : '#';
       applyTint($('#np'), art);
       window.Lyrics?.onSong(s);

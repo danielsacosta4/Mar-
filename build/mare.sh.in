@@ -107,6 +107,17 @@ caddyfile() {   # caddyfile NAVIDROME_URL
 		}
 	}
 
+	# MusicBrainz sign-in (sending star ratings): token exchange without CORS trouble.
+	handle_path /mbo/* {
+		rewrite * /oauth2{uri}
+		reverse_proxy https://musicbrainz.org {
+			header_up Host musicbrainz.org
+			header_up User-Agent "Mare/${MARE_VERSION} ( https://github.com/danielsacosta4/Mar- )"
+			header_up -X-Forwarded-For
+			header_up -X-Real-IP
+		}
+	}
+
 	# ListenBrainz API (personal playlists, stats, radio), so the browser only talks to this server.
 	handle_path /lb/* {
 		reverse_proxy https://api.listenbrainz.org {

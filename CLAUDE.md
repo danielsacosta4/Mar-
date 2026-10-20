@@ -53,7 +53,7 @@ test/
   mock_server.py  Mock Navidrome (/rest) + ListenBrainz (/lb/1) + static files, port 8765. User demo / secret
   test_*.py       Playwright browser tests (desktop + mobile, light + dark); screenshots to test-output/
                   (core, discovery, round3 = playlists/downloads/offline, round4 = collection + ratings + player bar,
-                  round5 = shopping list + time machine, round6 = Moments; the mock also answers /mb/* like MusicBrainz)
+                  round5 = shopping list + time machine, round6 = Moments, round7 = front page cache + play counts + ratings sync; the mock also answers /mb/* like MusicBrainz)
   run.sh          Starts the mock and runs all suites
   fakepve/        Fake pct/pveam/pvesh/pvesm/systemctl to exercise mare.sh without Proxmox
 mare.sh         The built installer (~13 KB); this is what the owner's curl command downloads. Commit it with every release.
@@ -236,6 +236,20 @@ uses `LANG=C.UTF-8` to avoid locale noise.
   ~3000) and answers library reads (`PAGE_CALLS`, not random lists) from `mare-pages` at once while refreshing in the background;
   any change call (playlist edits, star, setRating, startScan) or logout clears it. When the server can't be reached within
   300 ms the remembered page is returned with `X-Mare-Offline`, and `API.call` marks it `fromMemory` so the offline notice shows.
+- **1.5.16**: Home front page drawn at once from localStorage `mare.front` (last `Discover.weekly` result + recent/newest/frequent
+  lists), then redrawn when weekly + those three lists arrive (no longer waits for all 7 lists); feature cover `fetchpriority=high`.
+  (Owner's screen recording: the ~3.5 s wait was data, not images.) Play counts: "· N plays" in track rows (`.t-plays`), album meta
+  "played N times" (sum of songs), NP artist line. Ratings sync (`RateSync`, collection.js; owner chose 5★ only = Love, no Hate):
+  recording MBID = `song.musicBrainzId` or LB `metadata/lookup/` (artist + title + album, cached in `mare.rmbid`, null = not found).
+  LB: 5★ → `feedback/recording-feedback` score 1, losing the 5th star → 0. MusicBrainz: OAuth with an app the owner registers
+  (Web Application, callback = Maré's own URL); client id/secret/tokens in localStorage `mare.mbauth`; `?code&state` handled at
+  load (`RateSync.finish`); token + userinfo via new Caddy route `/mbo/*` → musicbrainz.org/oauth2/*; stars POSTed as XML to
+  `/mb/rating?client=Mare-<v>` (stars × 20, batches of 50). Settings "Ratings" group: LB note, MB connect/disconnect, "Send all"
+  (Catalog's rated songs). Album ratings are not sent. Mock: `/__sent` lists every POST for test_round7.
+- **1.5.17**: AirPods with the phone LOCKED: iOS delivers the earbud-out pause through the media-session `pause` action (no log
+  entry appeared, because that handler stamped `ownPause`), so the resume was treated as a normal play. On `volLocked` devices the
+  media-session pause now sets `sysPaused` (log "paused from lock screen or headphones (locked/open)"), and the next media-session
+  play reloads via `refresh()`.
 
 ## Roadmap (agreed with the owner; each needs a plan + go-ahead first)
 
