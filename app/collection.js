@@ -22,7 +22,7 @@ const isLossless = (s) => qualityOf(s)?.cls !== 'lossy';
 // album in localStorage and reads again only after Navidrome has rescanned the library (or after a week).
 
 const RATED_KEEP = ['id', 'title', 'artist', 'artistId', 'album', 'albumId', 'coverArt', 'duration', 'track', 'discNumber', 'year', 'genre',
-  'suffix', 'bitRate', 'bitDepth', 'samplingRate', 'replayGain', 'starred', 'userRating'];
+  'suffix', 'bitRate', 'bitDepth', 'samplingRate', 'replayGain', 'starred', 'userRating', 'musicBrainzId'];
 
 const Catalog = {
   data: null,
@@ -523,3 +523,162 @@ actions['scan-library'] = (el) => Scan.run(el);
 }
 
 window.Scan = Scan;
+
+/* ================= Ratings to ListenBrainz and MusicBrainz =================
+   ListenBrainz has no stars, only Love: a 5-star song is loved, and unloved when it loses its fifth star.
+   MusicBrainz gets the exact stars (0–100, 20 per star) through OAuth with an application the owner registers.
+   Songs are found by Navidrome's MusicBrainz ID, else by ListenBrainz's artist + title lookup (cached). */
+const RateSync = {
+  mb() { return store.get('mbauth') || {}; },
+  mbOn() { return !!this.mb().refresh; },
+  redirect() { return location.origin + location.pathname; },
+  oauth() { return API.base ? 'https://musicbrainz.org/oauth2' : '/mbo'; },
+
+  async mbid(s) {
+    if (s.musicBrainzId) return s.musicBrainzId;
+    const map = store.get('rmbid') || {};
+    if (s.id in map) return map[s.id];
+    let r = null;
+    try { r = await LB.get('metadata/lookup/', { artist_name: s.artist, recording_name: s.title, release_name: s.album }); }
+    catch (e) { if (e.code === 0 || e.code === 429) throw e; }
+    map[s.id] = r?.recording_mbid || null;
+    store.set('rmbid', map);
+    return map[s.id];
+  },
+
+  async love(mbid, on) {
+    const tk = LB.cfg().token;
+    if (!tk) return false;
+    const res = await fetch(`${LB.base()}/1/feedback/recording-feedback`, {
+      method: 'POST', headers: { Authorization: 'Token ' + tk, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ recording_mbid: mbid, score: on ? 1 : 0 }),
+    });
+    if (!res.ok) throw new ApiError(`ListenBrainz returned ${res.status}.`, res.status);
+    return true;
+  },
+
+  async token() {
+    const c = this.mb();
+    if (c.access && c.exp > Date.now() + 60000) return c.access;
+    const t = await this.grant({ grant_type: 'refresh_token', refresh_token: c.refresh });
+    return t.access_token;
+  },
+  async grant(fields) {
+    const c = this.mb();
+    const res = await fetch(`${this.oauth()}/token`, {
+      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ ...fields, client_id: c.client, client_secret: c.secret }),
+    });
+    const t = await res.json().catch(() => ({}));
+    if (!res.ok || !t.access_token) throw new ApiError(t.error_description || 'MusicBrainz didn\'t accept the sign-in.', res.status);
+    store.set('mbauth', { ...this.mb(), access: t.access_token, refresh: t.refresh_token || c.refresh, exp: Date.now() + (t.expires_in || 3600) * 1000 });
+    return t;
+  },
+  // pairs: [[recording MBID, stars 0–5], …]
+  async rate(pairs) {
+    const tk = await this.token();
+    for (let i = 0; i < pairs.length; i += 50) {
+      const xml = `<metadata xmlns="http://musicbrainz.org/ns/mmd-2.0#"><recording-list>${pairs.slice(i, i + 50)
+        .map(([id, n]) => `<recording id="${esc(id)}"><user-rating>${n * 20}</user-rating></recording>`).join('')}</recording-list></metadata>`;
+      const res = await fetch(`${MB.base()}/rating?client=${encodeURIComponent('Mare-' + window.MARE_VERSION)}`, {
+        method: 'POST', headers: { Authorization: 'Bearer ' + tk, 'Content-Type': 'application/xml; charset=UTF-8' }, body: xml,
+      });
+      if (!res.ok) throw new ApiError(`MusicBrainz returned ${res.status}.`, res.status);
+      if (i + 50 < pairs.length) await sleep(1100);
+    }
+  },
+
+  // After rating one song in Maré.
+  async song(s, n, prev) {
+    const lb = LB.cfg().token && (n === 5 || prev === 5);
+    if (!lb && !this.mbOn()) return;
+    const id = await this.mbid(s);
+    if (!id) { toast(`Couldn't find “${s.title}” on MusicBrainz, so the rating stays in Navidrome only`); return; }
+    if (lb) await this.love(id, n === 5);
+    if (this.mbOn()) await this.rate([[id, n]]);
+  },
+
+  // Settings: every rated song in the library.
+  async all(btn) {
+    if (!Catalog.load()) { btn.disabled = true; btn.textContent = 'Reading your library…'; await Catalog.ensure().catch(() => {}); btn.disabled = false; btn.textContent = 'Send all'; }
+    const rated = (Catalog.load()?.rated || []).filter((s) => s.userRating);
+    if (!rated.length) { toast('No rated songs yet (or the library is still being read)'); return; }
+    const label = btn.textContent;
+    btn.disabled = true;
+    let sent = 0, missing = 0;
+    const pairs = [];
+    try {
+      for (const [i, s] of rated.entries()) {
+        btn.textContent = `Finding songs… ${i + 1}/${rated.length}`;
+        const id = await this.mbid(s);
+        if (!id) { missing++; continue; }
+        if (s.userRating === 5 && LB.cfg().token) await this.love(id, true);
+        pairs.push([id, s.userRating]);
+        sent++;
+        if (!s.musicBrainzId) await sleep(250);   // ListenBrainz lookups: be gentle
+      }
+      if (this.mbOn() && pairs.length) { btn.textContent = 'Sending stars to MusicBrainz…'; await this.rate(pairs); }
+      const loved = rated.filter((s) => s.userRating === 5).length;
+      toast(`Sent ${sent} of ${rated.length} ratings${LB.cfg().token ? ` (${loved} loved on ListenBrainz)` : ''}.${missing ? ` ${missing} not found on MusicBrainz.` : ''}`);
+    } catch (e) { toast(e.message); } finally { btn.disabled = false; btn.textContent = label; }
+  },
+
+  connect(form) {
+    const client = form.client.value.trim(), secret = form.secret.value.trim();
+    if (!client || !secret) { toast('Paste both the client ID and the client secret'); return; }
+    const state = Math.random().toString(36).slice(2);
+    store.set('mbauth', { client, secret, state });
+    location.href = 'https://musicbrainz.org/oauth2/authorize?' + new URLSearchParams({
+      response_type: 'code', client_id: client, redirect_uri: this.redirect(), scope: 'rating profile', state, access_type: 'offline',
+    });
+  },
+  // Back from MusicBrainz with ?code=…
+  async finish() {
+    const q = new URLSearchParams(location.search), code = q.get('code'), c = this.mb();
+    if (!code || !c.state || q.get('state') !== c.state) return;
+    history.replaceState(null, '', this.redirect() + '#/settings');
+    try {
+      await this.grant({ grant_type: 'authorization_code', code, redirect_uri: this.redirect() });
+      const me = await fetch(`${this.oauth()}/userinfo`, { headers: { Authorization: 'Bearer ' + this.mb().access } }).then((r) => r.json()).catch(() => ({}));
+      store.set('mbauth', { ...this.mb(), state: '', user: me.sub || '' });
+      toast('MusicBrainz connected. Your stars will be sent there too.');
+    } catch (e) { toast(e.message); }
+    if (UI.route?.name === 'settings') UI.render();
+  },
+};
+RateSync.finish();
+{
+  const set = Rating.set.bind(Rating);
+  Rating.set = async (kind, id, n) => {
+    const s = kind === 'song' ? Songs.get(id) : null, prev = s?.userRating || 0;
+    await set(kind, id, n);
+    if (s) RateSync.song(s, n, prev).catch((e) => toast(e.message));
+  };
+}
+Object.assign(actions, {
+  'rate-sync-all': (el) => RateSync.all(el),
+  'mb-disconnect': () => { store.del('mbauth'); toast('MusicBrainz disconnected'); UI.render(); },
+});
+{
+  const orig = View.settings;
+  View.settings = async (main, ...rest) => {
+    await orig(main, ...rest);
+    const box = $('.settings', main);
+    if (!box || $('.rate-sync', box)) return;
+    const c = RateSync.mb(), lb = !!LB.cfg().token;
+    const html = `<h2 class="set-group rate-sync">Ratings</h2>
+      <div class="set-row"><div><h3>ListenBrainz</h3><p>${lb ? 'Songs you rate 5 stars are marked as Loved on ListenBrainz, which helps your recommendations. Taking the fifth star away removes the Love.' : 'Add your ListenBrainz token to send your 5-star songs there as Loved.'}</p></div></div>
+      <div class="set-row"><div><h3>MusicBrainz</h3>${RateSync.mbOn()
+        ? `<p>Connected${c.user ? ` as <b>${esc(c.user)}</b>` : ''}. Every star rating you give is also sent to MusicBrainz (public ratings).</p></div>
+        <div class="set-actions"><button class="btn" data-act="mb-disconnect">Disconnect</button></div></div>`
+        : `<p>Send your exact stars to MusicBrainz. One-time setup: on <a href="https://musicbrainz.org/account/applications" target="_blank" rel="noopener">musicbrainz.org → Applications</a>, register an application of type <b>Web Application</b> with this callback URL: <code>${esc(RateSync.redirect())}</code>. Then paste its client ID and secret here.</p>
+          <form class="mb-form"><input class="input" name="client" placeholder="Client ID" autocomplete="off"><input class="input" name="secret" placeholder="Client secret" autocomplete="off"><button class="btn btn-primary">Connect</button></form></div></div>`}
+      <div class="set-row"><div><h3>Send all my ratings</h3><p>Sends every song you've already rated (also ones rated in Navidrome itself). Songs are matched by artist and title, so a few may not be found.</p></div>
+        <div class="set-actions"><button class="btn" data-act="rate-sync-all">Send all</button></div></div>`;
+    const acct = [...$$('.set-group', box)].find((h) => h.textContent === 'Account');
+    if (acct) acct.insertAdjacentHTML('beforebegin', html); else box.insertAdjacentHTML('beforeend', html);
+    const f = $('.mb-form', box);
+    if (f) f.addEventListener('submit', (e) => { e.preventDefault(); RateSync.connect(f); });
+  };
+}
+window.RateSync = RateSync;

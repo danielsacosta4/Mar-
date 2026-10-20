@@ -1155,3 +1155,9 @@ input[type="range"]:hover::-moz-range-thumb { opacity: 1; }
 .growth .g-hit { fill: transparent; }
 .growth .g-hit:hover { fill: currentColor; opacity: .06; }
 .growth .g-tick { fill: var(--ink-2); font: 700 11px var(--font); letter-spacing: .06em; text-transform: uppercase; }
+
+/* Settings: MusicBrainz sign-in */
+.mb-form { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.mb-form input { flex: 1 1 180px; min-width: 0; height: 40px; padding: 0 10px; border: 2px solid var(--line); border-radius: 0; background: var(--bg); color: var(--ink); font: 13px ui-monospace, Menlo, monospace; }
+.mb-form input:focus { outline: none; border-color: var(--ink); }
+.set-row code { font: 12px ui-monospace, Menlo, monospace; word-break: break-all; background: var(--line); padding: 1px 4px; }

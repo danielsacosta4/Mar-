@@ -25,6 +25,7 @@ for i,n in enumerate(names):
         if (i*8+t)%5==0: s["userRating"]=5
         elif (i*8+t)%7==0: s["userRating"]=4
         s["created"]=(["2024-03-02T10:00:00Z"]*7+["2024-06-11T10:00:00Z","2024-11-20T10:00:00Z","2025-02-03T10:00:00Z","2025-07-15T10:00:00Z","2026-01-09T10:00:00Z"])[i]   # a big first import, then a trickle
+        s["playCount"]=(i*3+t)%9
         tr.append(s); songs.append(s)
     albums.append(dict(id=aid,name=n,artist=ar[1],artistId=ar[0],coverArt=aid,songCount=8,duration=sum(x["duration"] for x in tr),year=1975+i*4,genre=genres[i%5],playCount=random.randint(0,40),songs=tr,starred="2026-01-01T00:00:00Z" if i%4==0 else None,
         recordLabels=[{"name":"Valentim de Carvalho"}] if i%3==2 else None,releaseDate={"year":1975+i*4,"month":3,"day":14} if i%3==2 else None,
@@ -244,4 +245,28 @@ def mb(s,u):
         return s.send_json({"release-group-count":len(rgs),"release-groups":rgs})
     s.send_response(404); s.end_headers()
 H.mb=mb
+# Ratings sync: ListenBrainz lookup + feedback, MusicBrainz OAuth + rating. Everything sent is kept for the tests (/__sent).
+SENT=[]
+_lb3=H.lb
+def lb3(s,u):
+    if u.path.endswith('/metadata/lookup/'):
+        q={k:v[0] for k,v in parse_qs(u.query).items()}
+        if 'Missing' in q.get('recording_name',''): return s.send_json({})
+        return s.send_json({"recording_mbid":"rec-"+q.get('recording_name','').lower().replace(' ','-'),"artist_credit_name":q.get('artist_name')})
+    return _lb3(s,u)
+H.lb=lb3
+_get=H.do_GET
+def do_GET(s):
+    u=urlparse(s.path)
+    if u.path=='/__sent': return s.send_json(SENT)
+    if u.path=='/mbo/userinfo': return s.send_json({"sub":"modren12mb"})
+    return _get(s)
+H.do_GET=do_GET
+def do_POST(s):
+    u=urlparse(s.path); body=s.rfile.read(int(s.headers.get('Content-Length') or 0)).decode()
+    SENT.append({"path":u.path,"query":u.query,"auth":s.headers.get('Authorization',''),"body":body})
+    if u.path=='/mbo/token': return s.send_json({"access_token":"mbtok","refresh_token":"mbref","expires_in":3600,"token_type":"Bearer"})
+    if u.path in ('/lb/1/feedback/recording-feedback','/mb/rating'): return s.send_json({"status":"ok"})
+    s.send_response(404); s.end_headers()
+H.do_POST=do_POST
 ThreadingHTTPServer(('127.0.0.1',8765),H).serve_forever()

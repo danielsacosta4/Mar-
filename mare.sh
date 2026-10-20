@@ -19,7 +19,7 @@ set -Eeuo pipefail
 export LANG=C.UTF-8 LC_ALL=C.UTF-8
 unset LANGUAGE
 
-MARE_VERSION="1.5.15"
+MARE_VERSION="1.5.16"
 TAG="mare"
 # Where the app comes from: the repository as a tarball (override for testing).
 MARE_SOURCE=${MARE_SOURCE:-https://codeload.github.com/danielsacosta4/Mar-/tar.gz/refs/heads/main}
@@ -99,6 +99,17 @@ caddyfile() {   # caddyfile NAVIDROME_URL
 	# MusicBrainz (discographies), with the User-Agent MusicBrainz asks clients to send.
 	handle_path /mb/* {
 		rewrite * /ws/2{uri}
+		reverse_proxy https://musicbrainz.org {
+			header_up Host musicbrainz.org
+			header_up User-Agent "Mare/${MARE_VERSION} ( https://github.com/danielsacosta4/Mar- )"
+			header_up -X-Forwarded-For
+			header_up -X-Real-IP
+		}
+	}
+
+	# MusicBrainz sign-in (sending star ratings): token exchange without CORS trouble.
+	handle_path /mbo/* {
+		rewrite * /oauth2{uri}
 		reverse_proxy https://musicbrainz.org {
 			header_up Host musicbrainz.org
 			header_up User-Agent "Mare/${MARE_VERSION} ( https://github.com/danielsacosta4/Mar- )"
