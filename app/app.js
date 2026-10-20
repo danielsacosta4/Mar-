@@ -1,6 +1,6 @@
 /* Maré — a Navidrome (Subsonic / OpenSubsonic) web client. */
 'use strict';
-window.MARE_VERSION = '1.5.16';
+window.MARE_VERSION = '1.5.17';
 
 /* ================= Utilities ================= */
 
@@ -911,7 +911,12 @@ const Player = {
     const ms = navigator.mediaSession;
     const h = {
       play: () => { if (this.sysPaused && this.volLocked) { this.sysPaused = false; this.refresh('resumed after headphones'); } else this.audio.play(); },
-      pause: () => { this.ownPause = Date.now(); this.stopFade(); this.audio.pause(); },
+      // Locked iPhone: taking an earbud out arrives here (not as a plain pause), so treat it like the headphone pause
+      // and reconnect the sound on the next play. A lock-screen pause tap gets the same harmless reload.
+      pause: () => {
+        this.ownPause = Date.now(); this.stopFade(); this.audio.pause();
+        if (this.volLocked) { this.sysPaused = true; this.note(`paused from lock screen or headphones (${document.hidden ? 'locked' : 'open'})`); }
+      },
       previoustrack: () => this.prev(), nexttrack: () => this.next(false, 'headset / media key'),
       seekto: (e) => { if (e.seekTime != null) this.seek(e.seekTime); },
     };

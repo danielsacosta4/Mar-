@@ -246,6 +246,10 @@ uses `LANG=C.UTF-8` to avoid locale noise.
   load (`RateSync.finish`); token + userinfo via new Caddy route `/mbo/*` → musicbrainz.org/oauth2/*; stars POSTed as XML to
   `/mb/rating?client=Mare-<v>` (stars × 20, batches of 50). Settings "Ratings" group: LB note, MB connect/disconnect, "Send all"
   (Catalog's rated songs). Album ratings are not sent. Mock: `/__sent` lists every POST for test_round7.
+- **1.5.17**: AirPods with the phone LOCKED: iOS delivers the earbud-out pause through the media-session `pause` action (no log
+  entry appeared, because that handler stamped `ownPause`), so the resume was treated as a normal play. On `volLocked` devices the
+  media-session pause now sets `sysPaused` (log "paused from lock screen or headphones (locked/open)"), and the next media-session
+  play reloads via `refresh()`.
 
 ## Roadmap (agreed with the owner; each needs a plan + go-ahead first)
 
