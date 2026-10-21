@@ -260,6 +260,11 @@ uses `LANG=C.UTF-8` to avoid locale noise.
   and waiting/stalled while locked. `wireRanges`: touchstart/touchmove on `.scrubber` follow the finger (iOS sliders only move
   by the knob); the long-press menu ignores `.scrubber`. Mock: `/__down?1` makes streams fail at the network level, `/__log`.
   test_round8 = tap-to-seek, reload keeps position, offline next song from the ahead copy.
+- **1.5.19**: 1.5.18's nudge-only path when `document.hidden` broke the case that worked in 1.5.17 (phone unlocked, Maré in the
+  background: hidden is true there too; a page can't tell locked from background). `refresh()` reloads again whenever it runs;
+  if it ran while hidden, `lockedNudge` stays set (time moving doesn't prove sound) and `visibilitychange` back to visible reloads
+  once more (bypassing the 10 s limit). Locked iPhone still silent after earbud-in as of 1.5.18; if the log shows the reload ran
+  while locked, iOS is keeping web audio muted there and the real fix would be a native wrapper (not planned yet).
 
 ## Roadmap (agreed with the owner; each needs a plan + go-ahead first)
 
