@@ -1,6 +1,6 @@
 /* Maré — a Navidrome (Subsonic / OpenSubsonic) web client. */
 'use strict';
-window.MARE_VERSION = '1.5.18';
+window.MARE_VERSION = '1.5.19';
 
 /* ================= Utilities ================= */
 
@@ -483,7 +483,7 @@ const Player = {
     // Unlocked after a nudge on the lock screen (or with the sound reported off): now a full reload is allowed.
     document.addEventListener('visibilitychange', () => {
       if (document.hidden || !this.volLocked || this.audio.paused) return;
-      if (this.lockedNudge) this.refresh('unlocked after headphones, reconnecting');
+      if (this.lockedNudge) { this.lastReload = 0; this.refresh('back on screen after headphones, reconnecting'); }
       else if (this.sessionOff()) this.refresh('sound was off after unlocking, reconnecting');
     });
     this.els.forEach((el) => {
@@ -728,17 +728,12 @@ const Player = {
     if (!s) return;
     const p = this.pos(), where = `${document.hidden ? 'locked' : 'open'}${navigator.audioSession ? ', sound ' + navigator.audioSession.state : ''}`;
     this.ownPause = Date.now();
-    // Locked: a reload may not be allowed there, so only nudge (same point + play) and finish the job when unlocked.
-    if (document.hidden && tries === 0) {
-      this.note(`${why} (${where}): nudge`);
-      this.lockedNudge = true;
-      try { a.currentTime = a.currentTime; } catch { /* ignore */ }
-      a.play().catch(() => {});
-      return;
-    }
     if (tries === 0 && Date.now() - (this.lastReload || 0) < 10000) { this.note(`${why} (${where}): just reloaded, play only`); a.play().catch(() => {}); return; }
     this.lastReload = Date.now();
-    this.lockedNudge = false;
+    // In the background (locked, or just another app on screen; a page can't tell which) reload now, which is what
+    // works when unlocked, and do it once more when Maré comes back on screen in case the lock screen kept it silent.
+    // Time moving doesn't prove there's sound, so the flag stays until then.
+    this.lockedNudge = document.hidden;
     this.note(`${why} (${where})`);
     this.reload(s, p);
     // Check that it really plays (time moving once it has data, iOS reporting the sound as on); else pause + play.

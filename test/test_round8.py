@@ -30,6 +30,12 @@ async def main():
         await pg.evaluate("Player.seek(5)"); await pg.wait_for_timeout(300)
         await pg.evaluate("Player.lastReload=0; Player.refresh('test reload')"); await pg.wait_for_timeout(2000)
         print('after reload: %.1f s (was 5)' % await pg.evaluate("Player.pos()"), '| playing:', not await pg.evaluate("Player.audio.paused"))
+        # In the background (document hidden): refresh really reloads now, and again when back on screen.
+        await pg.evaluate("window.__hid=true; Object.defineProperty(document,'hidden',{configurable:true,get:()=>window.__hid}); Player.seek(4)"); await pg.wait_for_timeout(300)
+        await pg.evaluate("Player.lastReload=0; Player.refresh('resumed after headphones')"); await pg.wait_for_timeout(1500)
+        print('hidden refresh: %.1f s (was 4)' % await pg.evaluate("Player.pos()"), '| flag:', await pg.evaluate("Player.lockedNudge"))
+        await pg.evaluate("window.__hid=false; document.dispatchEvent(new Event('visibilitychange'))"); await pg.wait_for_timeout(1500)
+        print('back on screen:', await pg.evaluate("(store.get('playlog')||[]).slice(0,3).map(x=>x.why)"), '| flag:', await pg.evaluate("Player.lockedNudge"))
         # Saved ahead: copies exist, but online playback comes from the server.
         await pg.wait_for_function("(async()=>(await (await caches.open('mare-ahead')).keys()).length>=2)()", timeout=20000)
         keys=await pg.evaluate("(async()=>(await (await caches.open('mare-ahead')).keys()).map(r=>new URL(r.url).pathname))()")
