@@ -594,7 +594,7 @@ songMenu = function (anchor, s) {
         <div class="set-actions"><select class="select" data-pref="quality">${[['original', 'Original'], ['opus128', 'Opus 128'], ['opus96', 'Opus 96'], ['high', 'MP3 320'], ['normal', 'MP3 192'], ['low', 'MP3 128']].map(([v, l]) => `<option value="${v}"${Prefs.get('quality') === v ? ' selected' : ''}>${l}</option>`).join('')}</select></div></div>
       <div class="set-row"><div><h3>Download quality</h3><p>Original keeps lossless files (large: an album can be 1–2 GB in hi-res). Opus 128 is about half the size of MP3 320 at the same sound quality.</p></div>
         <div class="set-actions"><select class="select" data-pref="dlQuality">${[['opus128', 'Opus 128'], ['high', 'MP3 320'], ['original', 'Original']].map(([v, l]) => `<option value="${v}"${Prefs.get('dlQuality') === v ? ' selected' : ''}>${l}</option>`).join('')}</select></div></div>
-      <div class="set-row"><div><h3>Save the next songs ahead</h3><p>${Offline.supported ? 'While a song plays, the next 3 are saved on this device one at a time, so the music keeps going if the connection drops. Uses your streaming quality (Original FLACs can be 30–100 MB each); the last 10 are kept.' : 'Needs the secure (HTTPS) address, like downloads.'}</p></div>
+      <div class="set-row"><div><h3>Save the next songs ahead</h3><p>${Offline.supported ? 'While a song plays, the next 3 are saved on this device one at a time, so the music keeps going if the connection drops. They are saved at your download quality and only played when the connection is gone; the last 10 are kept.' : 'Needs the secure (HTTPS) address, like downloads.'}</p></div>
         <label class="switch"><input type="checkbox" data-pref="ahead" ${Ahead.on() ? 'checked' : ''} ${Offline.supported ? '' : 'disabled'}><span></span></label></div>
       <div class="set-row"><div><h3>Playback log</h3><p>Why each song changed, newest first. If a song ever skips by itself, the reason shows up here.</p></div>
         <div class="set-actions"><button class="btn" data-playlog>Show</button></div></div>
@@ -722,10 +722,9 @@ const Ahead = {
   CACHE: 'mare-ahead', NEXT: 3, KEEP: 10,
   busy: false, since: 0,
   on() { return Prefs.get('ahead') !== false && Offline.supported; },
-  key(id) {
-    const q = qualitySpec(Prefs.get('quality'));
-    return `/ahead/${id}/${q ? q.format : ''}/${q ? q.kbps : ''}`;
-  },
+  key(id) { return `/ahead/${id}`; },
+  // Small copies (download quality, Opus 128 by default): they're only played when the connection drops.
+  spec() { return qualitySpec(Prefs.get('dlQuality')); },
   list() { return store.get('ahead') || []; },
   // The playing song has loaded far enough that saving the next ones won't compete with it.
   ready() {
@@ -744,7 +743,7 @@ const Ahead = {
       for (const s of next) {
         if (d.songs[s.id] || await cache.match(this.key(s.id))) continue;
         if (!this.on() || Offline.offline) break;
-        const q = qualitySpec(Prefs.get('quality'));
+        const q = this.spec();
         const r = await fetch(API.stream(s.id, q ? { format: q.format, maxBitRate: q.kbps } : null));
         if (!r.ok) continue;
         const blob = await r.blob();

@@ -1,5 +1,5 @@
 /* Maré service worker: keeps the app usable offline and plays downloaded songs. */
-const VERSION = '1.5.17';
+const VERSION = '1.5.18';
 const SHELL = 'mare-shell-' + VERSION;
 const AUDIO = 'mare-audio';
 const ART = 'mare-art';
@@ -24,6 +24,7 @@ self.addEventListener('install', (e) => {
 self.addEventListener('activate', (e) => {
   e.waitUntil((async () => {
     for (const k of await caches.keys()) if (k.startsWith('mare-shell-') && k !== SHELL) await caches.delete(k);
+    await caches.delete(AHEAD);   // temporary copies; the format changed in 1.5.18
     await self.clients.claim();
   })());
 });
@@ -65,12 +66,13 @@ self.addEventListener('fetch', (e) => {
     e.respondWith((async () => {
       const hit = await (await caches.open(AUDIO)).match(`/offline/song/${id}`);
       if (hit) return ranged(hit, req.headers.get('Range'));
-      if (!url.searchParams.get('timeOffset')) {
-        const q = url.searchParams;
-        const ahead = await (await caches.open(AHEAD)).match(`/ahead/${id}/${q.get('format') || ''}/${q.get('maxBitRate') || ''}`);
+      // Online: straight from the server (rebuilding a big cached file for every range request made iPhones drop the
+      // page). The copy saved ahead is only for when the connection is gone.
+      try { return await fetch(req); } catch (err) {
+        const ahead = await (await caches.open(AHEAD)).match(`/ahead/${id}`);
         if (ahead) return ranged(ahead, req.headers.get('Range'));
+        throw err;
       }
-      return fetch(req);
     })());
     return;
   }

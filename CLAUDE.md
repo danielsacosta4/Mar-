@@ -53,7 +53,7 @@ test/
   mock_server.py  Mock Navidrome (/rest) + ListenBrainz (/lb/1) + static files, port 8765. User demo / secret
   test_*.py       Playwright browser tests (desktop + mobile, light + dark); screenshots to test-output/
                   (core, discovery, round3 = playlists/downloads/offline, round4 = collection + ratings + player bar,
-                  round5 = shopping list + time machine, round6 = Moments, round7 = front page cache + play counts + ratings sync; the mock also answers /mb/* like MusicBrainz)
+                  round5 = shopping list + time machine, round6 = Moments, round7 = front page cache + play counts + ratings sync, round8 = iPhone player (tap-to-seek, reload position, ahead copies offline); the mock also answers /mb/* like MusicBrainz)
   run.sh          Starts the mock and runs all suites
   fakepve/        Fake pct/pveam/pvesh/pvesm/systemctl to exercise mare.sh without Proxmox
 mare.sh         The built installer (~13 KB); this is what the owner's curl command downloads. Commit it with every release.
@@ -250,6 +250,16 @@ uses `LANG=C.UTF-8` to avoid locale noise.
   entry appeared, because that handler stamped `ownPause`), so the resume was treated as a normal play. On `volLocked` devices the
   media-session pause now sets `sysPaused` (log "paused from lock screen or headphones (locked/open)"), and the next media-session
   play reloads via `refresh()`.
+- **1.5.18**: iPhone player. Owner: music stops mid-song and restarts, tapping the progress bar does nothing, AirPods still silent
+  when locked. sw.js now streams from the server FIRST and uses the `mare-ahead` copy only when the fetch fails (serving 30–100 MB
+  FLAC blobs from the cache for every range request likely got the page killed); ahead copies are saved at `dlQuality`, key
+  `/ahead/<id>`, and the cache is cleared on SW activate. `Player.reload()` + `restore()` set the position again on
+  loadedmetadata/loadeddata/canplay/playing until it sticks (log "couldn't keep position" after 8 s); `resume()` uses it.
+  `refresh()`: when `document.hidden` only nudges (same currentTime + play) and sets `lockedNudge`, the full reload happens on
+  `visibilitychange` back to visible; at most one reload per 10 s; the 3 s check ignores `readyState < 3`. Logs media-session play
+  and waiting/stalled while locked. `wireRanges`: touchstart/touchmove on `.scrubber` follow the finger (iOS sliders only move
+  by the knob); the long-press menu ignores `.scrubber`. Mock: `/__down?1` makes streams fail at the network level, `/__log`.
+  test_round8 = tap-to-seek, reload keeps position, offline next song from the ahead copy.
 
 ## Roadmap (agreed with the owner; each needs a plan + go-ahead first)
 
