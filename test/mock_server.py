@@ -66,6 +66,7 @@ class H(SimpleHTTPRequestHandler):
             s.send_response(200); s.send_header('Content-Type','image/jpeg'); s.send_header('Content-Length',str(len(b))); s.end_headers(); return s.wfile.write(b)
         if m=='stream':
             log.append('stream '+q['id']+' '+q.get('format','orig'))
+            if STATE.get('down'): s.close_connection=True; s.connection.shutdown(2); return   # network failure (test_round8)
             rng=s.headers.get('Range'); data=WAV
             if rng:
                 a,b=rng.replace('bytes=','').split('-'); a=int(a or 0); b=int(b) if b else len(data)-1
@@ -246,7 +247,7 @@ def mb(s,u):
     s.send_response(404); s.end_headers()
 H.mb=mb
 # Ratings sync: ListenBrainz lookup + feedback, MusicBrainz OAuth + rating. Everything sent is kept for the tests (/__sent).
-SENT=[]
+SENT=[]; STATE={}
 _lb3=H.lb
 def lb3(s,u):
     if u.path.endswith('/metadata/lookup/'):
@@ -259,6 +260,8 @@ _get=H.do_GET
 def do_GET(s):
     u=urlparse(s.path)
     if u.path=='/__sent': return s.send_json(SENT)
+    if u.path=='/__down': STATE['down']=u.query=='1'; return s.send_json(STATE)
+    if u.path=='/__log': return s.send_json(log)
     if u.path=='/mbo/userinfo': return s.send_json({"sub":"modren12mb"})
     return _get(s)
 H.do_GET=do_GET

@@ -1,6 +1,6 @@
 /* Maré — a Navidrome (Subsonic / OpenSubsonic) web client. */
 'use strict';
-window.MARE_VERSION = '1.5.17';
+window.MARE_VERSION = '1.5.18';
 
 /* ================= Utilities ================= */
 
@@ -480,8 +480,11 @@ const Player = {
     // iOS 17+: say this is a music player, so the sound keeps working on the lock screen (like a music app).
     try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch { /* unsupported */ }
     // Unlocking while "playing" with the sound cut off: reconnect it.
+    // Unlocked after a nudge on the lock screen (or with the sound reported off): now a full reload is allowed.
     document.addEventListener('visibilitychange', () => {
-      if (!document.hidden && this.volLocked && !this.audio.paused && this.sessionOff()) this.refresh('sound was off after unlocking, reconnecting');
+      if (document.hidden || !this.volLocked || this.audio.paused) return;
+      if (this.lockedNudge) this.refresh('unlocked after headphones, reconnecting');
+      else if (this.sessionOff()) this.refresh('sound was off after unlocking, reconnecting');
     });
     this.els.forEach((el) => {
       el.preload = 'auto'; el._fade = 1;
@@ -497,6 +500,10 @@ const Player = {
         if (this.volLocked && !el.ended && Date.now() - (this.ownPause || 0) > 800) { this.sysPaused = true; this.note('paused by headphones or system'); }
       }));
       el.addEventListener('playing', mine(() => this.onPlaying()));
+      // Diagnostics for the locked iPhone: what the player goes through while the screen is off.
+      ['waiting', 'stalled', 'suspend'].forEach((ev) => el.addEventListener(ev, mine(() => {
+        if (this.volLocked && document.hidden && ev !== 'suspend') this.note(`${ev} while locked`);
+      })));
       el.addEventListener('timeupdate', mine(() => this.onTime()));
       el.addEventListener('durationchange', mine(() => this.onTime(true)));
       el.addEventListener('ended', mine(() => this.onEnded()));
@@ -719,28 +726,52 @@ const Player = {
   refresh(why, tries = 0) {
     const s = this.current(), a = this.audio;
     if (!s) return;
-    const p = this.pos();
+    const p = this.pos(), where = `${document.hidden ? 'locked' : 'open'}${navigator.audioSession ? ', sound ' + navigator.audioSession.state : ''}`;
     this.ownPause = Date.now();
-    this.note(`${why} (${document.hidden ? 'locked' : 'open'}${navigator.audioSession ? ', sound ' + navigator.audioSession.state : ''})`);
-    this.setSrc(a, s, p);
-    if (!a._offset && p > 0.5) a.addEventListener('loadedmetadata', () => { a.currentTime = p; }, { once: true });
-    a.play().catch(() => {});
-    // Check that it really plays: time must move and iOS must report the sound as on. If not, pause + play
-    // (what fixes it by hand), and once more a reload.
+    // Locked: a reload may not be allowed there, so only nudge (same point + play) and finish the job when unlocked.
+    if (document.hidden && tries === 0) {
+      this.note(`${why} (${where}): nudge`);
+      this.lockedNudge = true;
+      try { a.currentTime = a.currentTime; } catch { /* ignore */ }
+      a.play().catch(() => {});
+      return;
+    }
+    if (tries === 0 && Date.now() - (this.lastReload || 0) < 10000) { this.note(`${why} (${where}): just reloaded, play only`); a.play().catch(() => {}); return; }
+    this.lastReload = Date.now();
+    this.lockedNudge = false;
+    this.note(`${why} (${where})`);
+    this.reload(s, p);
+    // Check that it really plays (time moving once it has data, iOS reporting the sound as on); else pause + play.
     clearTimeout(this._check);
+    if (tries > 1) return;
     this._check = setTimeout(() => {
-      if (this.current() !== s || a.paused || tries > 1) return;
+      if (this.current() !== s || a.paused || a.readyState < 3) return;
       const stuck = this.pos() < p + 1;
-      if (!stuck && !this.sessionOff()) { if (tries) this.note('sound back'); return; }
-      if (tries === 0) {
-        this.note(`no sound after resume (${stuck ? 'not moving' : 'sound ' + navigator.audioSession.state}), pause + play`);
-        this.ownPause = Date.now(); a.pause();
-        setTimeout(() => { a.play().catch(() => {}); this._check = setTimeout(() => {
-          if (this.current() === s && !a.paused && (this.pos() < p + 1.5 || this.sessionOff())) this.refresh('still no sound, reloading', 2);
-          else this.note('sound back');
-        }, 2500); }, 300);
-      }
-    }, 2500);
+      if (!stuck && !this.sessionOff()) return;
+      this.note(`no sound after resume (${stuck ? 'not moving' : 'sound ' + navigator.audioSession.state}), pause + play`);
+      this.ownPause = Date.now(); a.pause();
+      setTimeout(() => a.play().catch(() => {}), 300);
+    }, 3000);
+  },
+  // Load the song again at the same point (also used after a dropped stream).
+  reload(s, p) {
+    const a = this.audio;
+    this.setSrc(a, s, p);
+    if (!a._offset && p > 0.5) this.restore(a, s, p);
+    a.play().catch(() => {});
+  },
+  // iOS ignores a position set too early: set it again on each step of loading until it sticks.
+  restore(a, s, p) {
+    const evs = ['loadedmetadata', 'loadeddata', 'canplay', 'playing'];
+    let done = false;
+    const off = () => evs.forEach((e) => a.removeEventListener(e, put));
+    const put = () => {
+      if (done || a._song !== s) return off();
+      try { a.currentTime = p; } catch { /* not ready yet */ }
+      if (Math.abs(a.currentTime - p) < 2) { done = true; off(); }
+    };
+    evs.forEach((e) => a.addEventListener(e, put));
+    setTimeout(() => { if (done || a._song !== s) return; put(); if (!done) { off(); this.note(`couldn't keep position (${Math.round(p)} s)`); } }, 8000);
   },
   sessionOff() { const st = navigator.audioSession?.state; return !!st && st !== 'active'; },
 
@@ -890,9 +921,7 @@ const Player = {
     cut.n++; cut.p = p;
     this.note(why);
     const a = this.audio;
-    this.setSrc(a, s, p);
-    if (!a._offset) a.addEventListener('loadedmetadata', () => { a.currentTime = p; }, { once: true });
-    a.play().catch(() => {});
+    this.reload(s, p);
     return true;
   },
 
@@ -910,7 +939,10 @@ const Player = {
     if (!('mediaSession' in navigator)) return;
     const ms = navigator.mediaSession;
     const h = {
-      play: () => { if (this.sysPaused && this.volLocked) { this.sysPaused = false; this.refresh('resumed after headphones'); } else this.audio.play(); },
+      play: () => {
+        if (this.volLocked) this.note(`lock screen / headphones: play (${document.hidden ? 'locked' : 'open'})`);
+        if (this.sysPaused && this.volLocked) { this.sysPaused = false; this.refresh('resumed after headphones'); } else this.audio.play();
+      },
       // Locked iPhone: taking an earbud out arrives here (not as a plain pause), so treat it like the headphone pause
       // and reconnect the sound on the next play. A lock-screen pause tap gets the same harmless reload.
       pause: () => {
@@ -1778,6 +1810,16 @@ function wireRanges() {
     // fallbacks the progress bar stayed frozen (at 0:00 on every next song) while the music played on.
     const done = () => { if (!UI.scrubbing) return; UI.scrubbing = false; Player.seekFraction(r.value / 1000); };
     r.addEventListener('change', done);
+    // Phones: iOS only moves a slider when its knob is dragged. Follow the finger anywhere on the bar instead.
+    const follow = (e) => {
+      const t = e.touches[0], b = r.getBoundingClientRect();
+      if (!t || !b.width) return;
+      e.preventDefault();
+      r.value = Math.round(Math.max(0, Math.min(1, (t.clientX - b.left) / b.width)) * 1000);
+      UI.scrubbing = true; preview();
+    };
+    r.addEventListener('touchstart', follow, { passive: false });
+    r.addEventListener('touchmove', follow, { passive: false });
     ['pointerup', 'pointercancel', 'touchend', 'touchcancel', 'blur'].forEach((ev) => r.addEventListener(ev, () => setTimeout(done, 0)));
   });
   $$('.volume').forEach((v) => {
