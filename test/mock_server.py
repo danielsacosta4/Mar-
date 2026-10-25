@@ -36,12 +36,13 @@ for s in albums[2]['songs']:
     s['contributors']=[{"role":"composer","artist":{"id":"c1","name":"Amália Rodrigues"}},{"role":"performer","subRole":"portuguese guitar","artist":{"id":"c2","name":"Rui Lourenço"}},{"role":"producer","artist":{"id":"c3","name":"Pedro Lima"}}]
 def strip(a): return {k:v for k,v in a.items() if k!="songs" and v is not None}
 def ok(**kw): return {"subsonic-response":{"status":"ok","version":"1.16.1","openSubsonic":True,**kw}}
-def tone():
-    sr=8000; n=sr*8; buf=io.BytesIO()
+def tone(sec=8):
+    sr=8000; n=sr*sec; buf=io.BytesIO()
     data=b''.join(struct.pack('<h',int(3000*math.sin(2*math.pi*440*i/sr))) for i in range(n))
     buf.write(b'RIFF'+struct.pack('<I',36+len(data))+b'WAVEfmt '+struct.pack('<IHHIIHH',16,1,1,sr,sr*2,2,16)+b'data'+struct.pack('<I',len(data))+data)
     return buf.getvalue()
 WAV=tone()
+LONG={}   # /__real?1: songs as long as their tag says (test_mobile), built once per length
 log=[]
 class H(SimpleHTTPRequestHandler):
     def __init__(s,*a,**k): super().__init__(*a,directory=ROOT,**k)
@@ -54,6 +55,7 @@ class H(SimpleHTTPRequestHandler):
         if u.path.startswith('/mb/'): return s.mb(u)
         if not u.path.startswith('/rest/'): return super().do_GET()
         m=u.path[6:].replace('.view',''); q={k:v[0] for k,v in parse_qs(u.query).items()}
+        if STATE.get('down'): s.close_connection=True; s.connection.shutdown(2); return   # server unreachable (whole API)
         log.append(m)
         tok=hashlib.md5(('secret'+q.get('s','')).encode()).hexdigest()
         if q.get('u')!='demo' or q.get('t')!=tok:
@@ -65,9 +67,15 @@ class H(SimpleHTTPRequestHandler):
             b=io.BytesIO(); im.save(b,'JPEG'); b=b.getvalue()
             s.send_response(200); s.send_header('Content-Type','image/jpeg'); s.send_header('Content-Length',str(len(b))); s.end_headers(); return s.wfile.write(b)
         if m=='stream':
-            log.append('stream '+q['id']+' '+q.get('format','orig'))
+            log.append('stream '+q['id']+' '+q.get('format','orig')+(' est' if q.get('estimateContentLength')=='true' else ''))
             if STATE.get('down'): s.close_connection=True; s.connection.shutdown(2); return   # network failure (test_round8)
             rng=s.headers.get('Range'); data=WAV
+            if STATE.get('real'):
+                d=next((x['duration'] for x in songs if x['id']==q['id']),8)-int(q.get('timeOffset') or 0)
+                data=LONG.setdefault(d,tone(max(1,d)))
+            if q.get('format') and q.get('format')!='raw' and q.get('estimateContentLength')!='true':
+                # Like Navidrome converting on the fly: no size, no ranges (estimateContentLength adds a size).
+                s.send_response(200); s.send_header('Content-Type','audio/wav'); s.end_headers(); s.close_connection=True; return s.wfile.write(data)
             if rng:
                 a,b=rng.replace('bytes=','').split('-'); a=int(a or 0); b=int(b) if b else len(data)-1
                 s.send_response(206); s.send_header('Content-Range',f'bytes {a}-{b}/{len(data)}'); data=data[a:b+1]
@@ -261,6 +269,7 @@ def do_GET(s):
     u=urlparse(s.path)
     if u.path=='/__sent': return s.send_json(SENT)
     if u.path=='/__down': STATE['down']=u.query=='1'; return s.send_json(STATE)
+    if u.path=='/__real': STATE['real']=u.query=='1'; return s.send_json(STATE)
     if u.path=='/__log': return s.send_json(log)
     if u.path=='/mbo/userinfo': return s.send_json({"sub":"modren12mb"})
     return _get(s)

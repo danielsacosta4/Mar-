@@ -53,7 +53,7 @@ test/
   mock_server.py  Mock Navidrome (/rest) + ListenBrainz (/lb/1) + static files, port 8765. User demo / secret
   test_*.py       Playwright browser tests (desktop + mobile, light + dark); screenshots to test-output/
                   (core, discovery, round3 = playlists/downloads/offline, round4 = collection + ratings + player bar,
-                  round5 = shopping list + time machine, round6 = Moments, round7 = front page cache + play counts + ratings sync, round8 = iPhone player (tap-to-seek, reload position, ahead copies offline); the mock also answers /mb/* like MusicBrainz)
+                  round5 = shopping list + time machine, round6 = Moments, round7 = front page cache + play counts + ratings sync, round8 = iPhone player (tap-to-seek, reload position, ahead copies offline), mobile = long phone session (stops, skips, long tasks); the mock also answers /mb/* like MusicBrainz)
   run.sh          Starts the mock and runs all suites
   fakepve/        Fake pct/pveam/pvesh/pvesm/systemctl to exercise mare.sh without Proxmox
 mare.sh         The built installer (~13 KB); this is what the owner's curl command downloads. Commit it with every release.
@@ -265,6 +265,20 @@ uses `LANG=C.UTF-8` to avoid locale noise.
   if it ran while hidden, `lockedNudge` stays set (time moving doesn't prove sound) and `visibilitychange` back to visible reloads
   once more (bypassing the 10 s limit). Locked iPhone still silent after earbud-in as of 1.5.18; if the log shows the reload ran
   while locked, iOS is keeping web audio muted there and the real fix would be a native wrapper (not planned yet).
+- **1.6.0** "phone pass": owner reported converted (Opus) streams stopping mid-song, random stops, and a laggy app on iPhone.
+  Streams no longer go through the service worker: `Player.src()` asks `Offline.localUrl(id)` (download → `/offline/song/<id>`;
+  saved-ahead copy only when offline → `/ahead/<id>`; both need an active SW controller) and sw.js only answers those two paths
+  (`/rest/stream` passes straight to Caddy). Converted streams, downloads and ahead copies add `estimateContentLength=true` (no
+  size made iPhones stop early). Error handler pings first; offline → `offlineFallback()` (saved copy of this song, else jump to
+  the next song that has one, else pause + toast); online → resume, and after 3 failed songs within a minute it pauses instead of
+  running through the queue. `Player.diag()` (quality, start offset, loaded-to, ready/network state) is added to error / stalled /
+  early-end log entries; Settings → "Copy diagnostics" copies device, settings, storage sizes and the log. Lighter: `Offline.db()`
+  kept in memory (was JSON-parsed several times a second via `transcodes()`), `onTime()` draws nothing while hidden and sets the
+  media-session position ≤1/s (5 s hidden), `persist()` writes the queue only when it changed (position in `mare.ptime`), cover
+  colours cached in `mare.tints`, no view transition on `volLocked` devices, SW cover cache 1500. Mock: converted streams without
+  `estimateContentLength` have no size and no ranges; `/__real?1` = songs as long as their tag; `/__down?1` now fails the whole API.
+  test_mobile = long iPhone-like session (CPU ×4, touch, iOS volume rules, Opus) with stop/skip/long-task checks. WebKit and real
+  iPhones aren't available in the sandbox: the owner's diagnostics are the real acceptance test.
 
 ## Roadmap (agreed with the owner; each needs a plan + go-ahead first)
 
