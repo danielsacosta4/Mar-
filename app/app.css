@@ -1161,3 +1161,4 @@ input[type="range"]:hover::-moz-range-thumb { opacity: 1; }
 .mb-form input { flex: 1 1 180px; min-width: 0; height: 40px; padding: 0 10px; border: 2px solid var(--line); border-radius: 0; background: var(--bg); color: var(--ink); font: 13px ui-monospace, Menlo, monospace; }
 .mb-form input:focus { outline: none; border-color: var(--ink); }
 .set-row code { font: 12px ui-monospace, Menlo, monospace; word-break: break-all; background: var(--line); padding: 1px 4px; }
+.diag-text { width: 100%; min-height: 220px; font: 11px/1.4 ui-monospace, Menlo, monospace; background: var(--bg); color: var(--ink); border: 2px solid var(--line); padding: 8px; }

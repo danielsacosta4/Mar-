@@ -260,8 +260,17 @@ const Offline = {
   supported: 'serviceWorker' in navigator && window.isSecureContext && 'caches' in window,
   jobs: new Map(),
 
-  db() { return store.get('downloads') || { items: {}, songs: {} }; },
-  save(d) { store.set('downloads', d); },
+  // Read once and kept in memory: this is asked several times a second while playing (it used to parse the whole index each time).
+  db() { return (this._db ||= store.get('downloads') || { items: {}, songs: {} }); },
+  save(d) { this._db = d; store.set('downloads', d); },
+  // Local copy to play instead of streaming: a download, or (only when the server can't be reached) a song saved ahead.
+  // These URLs are answered by the service worker; online streams no longer pass through it at all.
+  localUrl(id) {
+    if (!navigator.serviceWorker?.controller) return '';
+    if (this.hasSong(id)) return `/offline/song/${encodeURIComponent(id)}`;
+    if ((this.offline || navigator.onLine === false) && window.Ahead?.has(id)) return `/ahead/${encodeURIComponent(id)}`;
+    return '';
+  },
   has(key) { return !!this.db().items[key]; },
   hasSong(id) { return !!this.db().songs[id]; },
   count() { return Object.keys(this.db().items).length; },
@@ -312,7 +321,7 @@ const Offline = {
         const s = songs[i++];
         if (!(await audio.match(`/offline/song/${s.id}`))) {
           try {
-            const r = await fetch(API.stream(s.id, dq ? { format: dq.format, maxBitRate: dq.kbps } : null));
+            const r = await fetch(API.stream(s.id, dq ? { format: dq.format, maxBitRate: dq.kbps, estimateContentLength: true } : null));
             if (!r.ok) throw new Error(r.status);
             const blob = await r.blob();
             job.bytes += blob.size;
@@ -597,7 +606,7 @@ songMenu = function (anchor, s) {
       <div class="set-row"><div><h3>Save the next songs ahead</h3><p>${Offline.supported ? 'While a song plays, the next 3 are saved on this device one at a time, so the music keeps going if the connection drops. They are saved at your download quality and only played when the connection is gone; the last 10 are kept.' : 'Needs the secure (HTTPS) address, like downloads.'}</p></div>
         <label class="switch"><input type="checkbox" data-pref="ahead" ${Ahead.on() ? 'checked' : ''} ${Offline.supported ? '' : 'disabled'}><span></span></label></div>
       <div class="set-row"><div><h3>Playback log</h3><p>Why each song changed, newest first. If a song ever skips by itself, the reason shows up here.</p></div>
-        <div class="set-actions"><button class="btn" data-playlog>Show</button></div></div>
+        <div class="set-actions"><button class="btn" data-playlog>Show</button><button class="btn" data-diag>Copy diagnostics</button></div></div>
       <div class="playlog" hidden></div>
       <h2 class="set-group">Account</h2>`);
     $('[data-playlog]', box).addEventListener('click', (e) => {
@@ -606,6 +615,11 @@ songMenu = function (anchor, s) {
       e.currentTarget.textContent = out.hidden ? 'Show' : 'Hide';
       const log = store.get('playlog') || [];
       out.innerHTML = log.length ? log.map((l) => `<div class="pl-row"><b>${esc(l.why)}</b><span>${esc(l.title)} · ${esc(l.artist || '')}</span><i>${new Date(l.t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })} · ${esc(l.fmt || '')} · at ${fmtTime(l.pos)} of ${fmtTime(l.dur)}${l.tag && Math.abs(l.tag - l.dur) > 2 ? ' (tag says ' + fmtTime(l.tag) + ')' : ''}</i></div>`).join('') : '<p class="muted">Nothing recorded yet.</p>';
+    });
+    $('[data-diag]', box).addEventListener('click', async () => {
+      const text = diagnostics();
+      try { await navigator.clipboard.writeText(text); toast('Diagnostics copied. Paste them in your message.'); }
+      catch { const out = $('.playlog', box); out.hidden = false; out.innerHTML = `<textarea class="diag-text" readonly>${esc(text)}</textarea>`; $('.diag-text', out).select(); toast('Select all and copy the text below'); }
     });
     const rng = $('[data-pref="crossfade"]', box);
     const paint = () => rng.style.setProperty('--p', (rng.value / 12) * 100 + '%');
@@ -715,6 +729,24 @@ if (navigator.onLine === false) Offline.setOffline(true);
 window.Offline = Offline;
 window.Playlists = Playlists;
 
+// Everything worth knowing about playback problems on this device, as plain text to paste (no passwords or tokens).
+function diagnostics() {
+  const a = Player.audio, sizes = {};
+  try { for (const k of Object.keys(localStorage)) sizes[k] = (localStorage.getItem(k) || '').length; } catch { /* ignore */ }
+  const big = Object.entries(sizes).sort((x, y) => y[1] - x[1]).slice(0, 6).map(([k, n]) => `${k.replace('mare.', '')} ${Math.round(n / 1024)} KB`).join(', ');
+  const lines = [
+    `Maré ${window.MARE_VERSION} · ${new Date().toISOString()}`,
+    `Device: ${navigator.userAgent}`,
+    `Home Screen app: ${navigator.standalone === true || matchMedia('(display-mode: standalone)').matches} · iPhone/iPad mode: ${Player.volLocked} · Opus: ${CAN_OPUS} · sound: ${navigator.audioSession?.state || 'n/a'}`,
+    `Streaming: ${Prefs.get('quality')} · downloads: ${Prefs.get('dlQuality')} · save ahead: ${Ahead.on()} · offline now: ${!!Offline.offline}`,
+    `Now: ${Player.current() ? `${Player.current().title} (${Player.current().suffix || '?'})` : 'nothing'} · ${a.paused ? 'paused' : 'playing'} at ${Math.round(Player.pos())} s · ${Player.diag()}`,
+    `Storage: ${big}`,
+    '', 'Playback log (newest first):',
+    ...(store.get('playlog') || []).map((l) => `${new Date(l.t).toLocaleString()} | ${l.why} | ${l.title} · ${l.artist || ''} | ${l.fmt || ''} | at ${l.pos}/${l.dur} s (tag ${l.tag})`),
+  ];
+  return lines.join('\n');
+}
+
 /* ================= Next songs saved ahead =================
    While a song plays, the next 3 of the queue are saved one at a time (after the playing song has loaded), so a dropped
    connection doesn't stop the music. The service worker plays them from the "mare-ahead" cache; about 10 are kept. */
@@ -726,6 +758,7 @@ const Ahead = {
   // Small copies (download quality, Opus 128 by default): they're only played when the connection drops.
   spec() { return qualitySpec(Prefs.get('dlQuality')); },
   list() { return store.get('ahead') || []; },
+  has(id) { return this.list().includes(this.key(id)); },
   // The playing song has loaded far enough that saving the next ones won't compete with it.
   ready() {
     const a = Player.audio, d = Player.dur(), b = a.buffered;
@@ -744,7 +777,7 @@ const Ahead = {
         if (d.songs[s.id] || await cache.match(this.key(s.id))) continue;
         if (!this.on() || Offline.offline) break;
         const q = this.spec();
-        const r = await fetch(API.stream(s.id, q ? { format: q.format, maxBitRate: q.kbps } : null));
+        const r = await fetch(API.stream(s.id, q ? { format: q.format, maxBitRate: q.kbps, estimateContentLength: true } : null));
         if (!r.ok) continue;
         const blob = await r.blob();
         await cache.put(this.key(s.id), new Response(blob, { headers: { 'Content-Type': r.headers.get('Content-Type') || 'audio/mpeg', 'Content-Length': blob.size } }));
@@ -761,6 +794,6 @@ const Ahead = {
 {
   const playing = Player.onPlaying.bind(Player);
   Player.onPlaying = function () { Ahead.since = Date.now(); playing(); setTimeout(() => Ahead.run(), 3000); };
-  setInterval(() => { if (!Player.audio.paused) Ahead.run(); }, 10000);
+  setInterval(() => { if (!Player.audio.paused && Player.index < Player.queue.length - 1) Ahead.run(); }, 10000);
 }
 window.Ahead = Ahead;

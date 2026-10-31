@@ -1,6 +1,6 @@
 /* Maré — a Navidrome (Subsonic / OpenSubsonic) web client. */
 'use strict';
-window.MARE_VERSION = '1.5.19';
+window.MARE_VERSION = '1.6.1';
 
 /* ================= Utilities ================= */
 
@@ -200,6 +200,11 @@ const tintCache = new Map();
 function extractTint(src) {
   if (!src) return Promise.resolve(null);
   if (tintCache.has(src)) return Promise.resolve(tintCache.get(src));
+  // Remembered across visits by cover id, so a phone doesn't redo the work (and the image load) each time.
+  let id = '';
+  try { const u = new URL(src, location.href); id = u.searchParams.get('id') ? `${u.searchParams.get('id')}` : ''; } catch { /* ignore */ }
+  const saved = id && (store.get('tints') || {})[id];
+  if (saved) { tintCache.set(src, saved); return Promise.resolve(saved); }
   return new Promise((resolve) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
@@ -232,6 +237,7 @@ function extractTint(src) {
           : [all[0] / all[3], all[1] / all[3], all[2] / all[3]];
         const out = rgb.map((v) => Math.round(Math.min(255, Math.max(0, v))));
         tintCache.set(src, out);
+        if (id) { const all = store.get('tints') || {}, keys = Object.keys(all); if (keys.length > 600) keys.slice(0, 200).forEach((k) => delete all[k]); all[id] = out; store.set('tints', all); }
         resolve(out);
       } catch { resolve(null); }
     };
@@ -422,19 +428,43 @@ const Player = {
   // with timeOffset and the element remembers that offset (el._offset). pos()/dur() hide this from the rest.
   transcodes(song) {
     const q = qualitySpec(Prefs.get('quality'));
-    if (!q || !song || window.Offline?.hasSong?.(song.id)) return false;   // downloads play the stored copy
+    if (!q || !song || window.Offline?.localUrl?.(song.id)) return false;   // downloads / saved copies play as stored
     // Navidrome passes a file through untouched when it's already in that format at or below that bitrate.
     return !(String(song.suffix || '').toLowerCase() === q.format && song.bitRate && song.bitRate <= q.kbps);
   },
   src(song, offset = 0) {
+    const local = window.Offline?.localUrl?.(song.id);
+    if (local) return local;
     const q = qualitySpec(Prefs.get('quality'));
-    return API.stream(song.id, q ? { format: q.format, maxBitRate: q.kbps, ...(offset >= 1 ? { timeOffset: Math.floor(offset) } : {}) } : null);
+    // estimateContentLength: a converted stream otherwise has no size, and iPhones stop such streams early.
+    return API.stream(song.id, q ? { format: q.format, maxBitRate: q.kbps, estimateContentLength: true, ...(offset >= 1 ? { timeOffset: Math.floor(offset) } : {}) } : null);
   },
   setSrc(el, song, offset = 0) {
     if (el === this.audio) this.ownPause = Date.now();   // a new source pauses the element: that's us, not the headphones
     el._song = song;
     el._offset = offset >= 1 && this.transcodes(song) ? Math.floor(offset) : 0;
     el.src = this.src(song, el._offset);
+  },
+  // The server can't be reached: play this song's saved copy, else the next song that has one, else stop.
+  offlineFallback(song) {
+    const has = (s) => !!window.Offline?.localUrl?.(s.id);
+    const a = this.audio;
+    if (has(song)) { const p = this.pos(); this.note('offline: playing the saved copy'); this.reload(song, p >= 1 ? p : 0); return; }
+    const i = this.queue.findIndex((s, k) => k > this.index && has(s));
+    if (i > 0) { this.note('offline: jumping to the next saved song'); this.index = i; this.load(true); return; }
+    this.ownPause = Date.now(); a.pause();
+    this.note('offline, nothing saved to play');
+    toast('You\'re offline and the next songs aren\'t saved on this device.');
+  },
+  // What the element is playing, for the Playback log (no token): quality, start point, how much has arrived.
+  diag(el = this.audio) {
+    const src = el.getAttribute('src') || '';
+    let what = 'original';
+    if (src.startsWith('/offline/')) what = 'downloaded copy';
+    else if (src.startsWith('/ahead/')) what = 'saved copy';
+    else { try { const q = new URL(src, location.href).searchParams; if (q.get('format')) what = `${q.get('format')} ${q.get('maxBitRate')}`; } catch { /* ignore */ } }
+    const b = el.buffered, end = b.length ? b.end(b.length - 1) + (el._offset || 0) : 0;
+    return `${what}${el._offset ? `, from ${el._offset} s` : ''}, loaded to ${Math.round(end)} s, state ${el.readyState}/${el.networkState}`;
   },
   pos(el = this.audio) { return (el.currentTime || 0) + (el._offset || 0); },
   dur(el = this.audio) {
@@ -501,8 +531,8 @@ const Player = {
       }));
       el.addEventListener('playing', mine(() => this.onPlaying()));
       // Diagnostics for the locked iPhone: what the player goes through while the screen is off.
-      ['waiting', 'stalled', 'suspend'].forEach((ev) => el.addEventListener(ev, mine(() => {
-        if (this.volLocked && document.hidden && ev !== 'suspend') this.note(`${ev} while locked`);
+      ['waiting', 'stalled'].forEach((ev) => el.addEventListener(ev, mine(() => {
+        if (this.volLocked && (document.hidden || ev === 'stalled')) this.note(`${ev}${document.hidden ? ' while locked' : ''} (${this.diag(el)})`);
       })));
       el.addEventListener('timeupdate', mine(() => this.onTime()));
       el.addEventListener('durationchange', mine(() => this.onTime(true)));
@@ -510,12 +540,21 @@ const Player = {
       el.addEventListener('error', (e) => {
         if (el !== this.audio) { this.preId = null; return; }
         if (!this.current() || !el.getAttribute('src')) return;
-        const code = el.error?.code || '';
-        // A dropped connection mid-song shows up as an error: pick the song up where it stopped instead of skipping.
-        if (navigator.onLine !== false && this.resume(`error ${code}, resuming`)) return;
-        toast(navigator.onLine === false ? 'You\'re offline and this song isn\'t downloaded.' : 'This track can\'t be played. Skipping.');
-        this.note('error ' + code);
-        setTimeout(() => this.next(true, 'skipped after error'), 800);
+        const code = el.error?.code || '', song = el._song;
+        this.note(`error ${code} (${this.diag(el)})`);
+        // A dropped connection mid-song shows up as an error. Ask the server first: if it's gone, Maré goes offline and
+        // the reload below plays a saved copy when there is one; otherwise pick the song up where it stopped.
+        API.call('ping').catch(() => {}).then(() => {
+          if (el !== this.audio || el._song !== song) return;
+          const offline = window.Offline?.offline || navigator.onLine === false;
+          if (offline) return this.offlineFallback(song);
+          if (this.resume(`error ${code}, resuming`)) return;
+          // Never run through the whole queue: after 3 failed songs in a row, stop and say so.
+          this.failed = (Date.now() - (this.failedAt || 0) < 60000 ? this.failed || 0 : 0) + 1; this.failedAt = Date.now();
+          if (this.failed >= 3) { this.ownPause = Date.now(); el.pause(); toast('Several songs in a row couldn\'t be played. Check the connection to Navidrome.'); this.note('stopped after 3 failed songs'); return; }
+          toast('This track can\'t be played. Skipping.');
+          setTimeout(() => this.next(true, 'skipped after error'), 800);
+        });
       });
     });
     const saved = store.get('player');
@@ -527,7 +566,7 @@ const Player = {
       this.vol = saved.volume ?? 1;
       if (this.current()) {
         const a = this.audio;
-        const t = saved.time || 0;
+        const pt = store.get('ptime'), t = (pt?.id === this.current().id ? pt.time : saved.time) || 0;
         this.setSrc(a, this.current(), t);
         this.applyVolume();
         if (!a._offset) a.addEventListener('loadedmetadata', () => { if (t && t < a.duration - 2) a.currentTime = t; }, { once: true });
@@ -540,7 +579,12 @@ const Player = {
     this.sync();
   },
 
+  // The queue is only written when it changed; the position every 15 s goes to its own tiny key.
   persist() {
+    store.set('ptime', { id: this.current()?.id, time: this.pos() });
+    const sig = `${this.index}:${this.shuffle}:${this.repeat}:${this.vol}:${this.queue.map((x) => x.id).join()}`;
+    if (sig === this.savedSig) return;
+    this.savedSig = sig;
     store.set('player', {
       queue: this.queue.slice(0, 1000), index: this.index, order: this.order ? this.order.slice(0, 1000) : null,
       shuffle: this.shuffle, repeat: this.repeat, volume: this.vol, time: this.pos(),
@@ -898,11 +942,17 @@ const Player = {
     if (s && !this.scrobbled && d > 30 && this.playedSec >= Math.min(d / 2, 240)) { this.scrobbled = true; this.scrobble(s.id, true); }
     window.Lyrics?.onTime(t);
     if (UI.scrubbing && !force) return;
+    // Screen off or another app on top: nothing to draw, and the lock screen only needs the position now and then.
+    if (document.hidden && !force) { if (Date.now() - (this.posAt || 0) > 5000) this.positionState(t, d); return; }
     const p = d ? (t / d) * 100 : 0;
     $$('.scrubber').forEach((r) => { r.value = Math.round(p * 10); r.style.setProperty('--p', p + '%'); });
     $$('.p-cur').forEach((e) => { e.textContent = fmtTime(t); });
     $$('.p-dur').forEach((e) => { e.textContent = fmtTime(d); });
     $('.p-mini-progress span').style.width = p + '%';
+    if (force || Date.now() - (this.posAt || 0) > 1000) this.positionState(t, d);
+  },
+  positionState(t, d) {
+    this.posAt = Date.now();
     if ('mediaSession' in navigator && d && navigator.mediaSession.setPositionState) {
       try { navigator.mediaSession.setPositionState({ duration: d, position: Math.min(t, d), playbackRate: 1 }); } catch { /* ignore */ }
     }
@@ -922,7 +972,7 @@ const Player = {
 
   onEnded() {
     // A stream cut short by a proxy or the network ends "normally" mid-song: pick the song up again where it stopped.
-    if (this.repeat !== 'one' && this.resume('cut off early, resuming')) return;
+    if (this.repeat !== 'one' && this.resume(`cut off early, resuming (${this.diag()})`)) return;
     this.finishScrobble();
     if (this.repeat === 'one') { this.audio.currentTime = 0; this.load(true); return; }
     this.next(true);
@@ -1580,7 +1630,8 @@ const UI = {
     this.coverFrom = null;
     let p;
     const start = () => { p = view(main, r.params, r.id); return p; };
-    if (img && img.isConnected && r.name === 'album' && document.startViewTransition && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    // Not on iPhone/iPad: the snapshot it takes of the whole page made opening an album feel slow there.
+    if (img && img.isConnected && r.name === 'album' && document.startViewTransition && !Player.volLocked && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
       img.style.viewTransitionName = 'cover';
       this.vt = true;
       const vt = document.startViewTransition(async () => {

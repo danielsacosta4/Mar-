@@ -1,16 +1,18 @@
 /* Maré service worker: keeps the app usable offline and plays downloaded songs. */
-const VERSION = '1.5.19';
+const VERSION = '1.6.1';
 const SHELL = 'mare-shell-' + VERSION;
 const AUDIO = 'mare-audio';
 const ART = 'mare-art';
 const AHEAD = 'mare-ahead';    // the next few songs of the queue, saved while playing (managed by extras.js)
 const COVERS = 'mare-covers';  // every cover seen, so pages show them instantly the next time
 const PAGES = 'mare-pages';    // last answer of library reads, shown at once and refreshed in the background
-const MAX_COVERS = 3000;
+const MAX_COVERS = 1500;
 // Library reads worth showing from memory. Anything that changes data clears them (see CHANGES).
 const PAGE_CALLS = new Set(['getAlbumList2', 'getAlbum', 'getArtists', 'getArtist', 'getArtistInfo2', 'getAlbumInfo2', 'getPlaylists', 'getPlaylist', 'getGenres', 'getStarred2', 'getTopSongs']);
 const CHANGES = /^(create|update|delete)Playlist$|^(star|unstar|setRating|startScan)$/;
-const SHELL_FILES = ['./', 'index.html', 'app.css', 'app.js', 'discover.js', 'extras.js', 'collection.js', 'shopping.js', 'timemachine.js', 'moments.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png'];
+const SHELL_FILES = ['./', 'index.html', 'app.css', 'app.js', 'discover.js', 'extras.js', 'collection.js', 'shopping.js', 'timemachine.js', 'moments.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png',
+  // The older-style copy for iOS 12 (see index.html); cached too, so the old phone also starts offline.
+  'legacy-polyfills.js', 'legacy/app.css', ...['app', 'discover', 'extras', 'collection', 'shopping', 'timemachine', 'moments'].map((n) => `legacy/${n}.js`)];
 // Fonts are fetched by the installer; if they're missing the app falls back to system fonts, so don't fail on them.
 const FONT_FILES = ['fonts/archivo.woff2', 'fonts/newsreader.woff2', 'fonts/newsreader-italic.woff2'];
 
@@ -60,22 +62,18 @@ self.addEventListener('fetch', (e) => {
   if (url.origin !== self.location.origin) return;
   const path = url.pathname;
 
-  // Songs: play the downloaded copy when there is one, otherwise stream from the server.
-  if (/\/rest\/stream(\.view)?$/.test(path)) {
-    const id = url.searchParams.get('id');
+  // Songs: only the stored copies come through here (/offline/song/<id> downloads, /ahead/<id> saved ahead). Normal
+  // streams go straight to the server: routing them through the service worker made iPhones stall and drop songs.
+  const local = /^\/(offline\/song|ahead)\/([^/]+)$/.exec(path);
+  if (local) {
+    const key = local[1] === 'ahead' ? `/ahead/${local[2]}` : `/offline/song/${local[2]}`;
     e.respondWith((async () => {
-      const hit = await (await caches.open(AUDIO)).match(`/offline/song/${id}`);
-      if (hit) return ranged(hit, req.headers.get('Range'));
-      // Online: straight from the server (rebuilding a big cached file for every range request made iPhones drop the
-      // page). The copy saved ahead is only for when the connection is gone.
-      try { return await fetch(req); } catch (err) {
-        const ahead = await (await caches.open(AHEAD)).match(`/ahead/${id}`);
-        if (ahead) return ranged(ahead, req.headers.get('Range'));
-        throw err;
-      }
+      const hit = await (await caches.open(local[1] === 'ahead' ? AHEAD : AUDIO)).match(key);
+      return hit ? ranged(hit, req.headers.get('Range')) : new Response('', { status: 404 });
     })());
     return;
   }
+  if (/\/rest\/stream(\.view)?$/.test(path)) return;
 
   // Cover art: downloaded covers first (any size), then the server.
   if (/\/rest\/getCoverArt(\.view)?$/.test(path)) {
@@ -110,7 +108,7 @@ self.addEventListener('fetch', (e) => {
         if (res.ok) {
           const body = await res.clone().text();
           let ok = false;
-          try { ok = JSON.parse(body)['subsonic-response']?.status === 'ok'; } catch { /* not JSON */ }
+          try { const r = JSON.parse(body)['subsonic-response']; ok = !!r && r.status === 'ok'; } catch { /* not JSON */ }
           if (ok) await cache.put(key, new Response(body, { headers: { 'Content-Type': 'application/json' } }));
         }
         return res;

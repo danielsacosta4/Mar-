@@ -13,7 +13,13 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icon-192.png">
-  <link rel="stylesheet" href="app.css?v=1.5.19">
+  <script>
+    // Old iPhones (iOS 12, e.g. iPhone 6) can't read the app's newer code: they get the older-style copy in legacy/,
+    // which build/build.sh writes. Written in old-style JavaScript on purpose. ?v= keeps proxies from serving old files.
+    var MARE_V = '1.6.1', MARE_DIR = '';
+    try { if (localStorage.getItem('mare.forceLegacy')) throw 0; new Function('var a; return a?.b ?? (a ||= 1)'); } catch (e) { MARE_DIR = 'legacy/'; }
+    document.write('<link rel="stylesheet" href="' + MARE_DIR + 'app.css?v=' + MARE_V + '">');
+  </script>
 </head>
 <body>
   <div id="login" class="login" hidden>
@@ -139,12 +145,9 @@
   <div id="menu" class="menu" hidden role="menu"></div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
-  <script src="app.js?v=1.5.19"></script>
-  <script src="discover.js?v=1.5.19"></script>
-  <script src="extras.js?v=1.5.19"></script>
-  <script src="collection.js?v=1.5.19"></script>
-  <script src="shopping.js?v=1.5.19"></script>
-  <script src="timemachine.js?v=1.5.19"></script>
-  <script src="moments.js?v=1.5.19"></script>
+  <script>
+    (MARE_DIR ? ['legacy-polyfills.js'] : []).concat(['app', 'discover', 'extras', 'collection', 'shopping', 'timemachine', 'moments'].map(function (n) { return MARE_DIR + n + '.js'; }))
+      .forEach(function (f) { document.write('<script src="' + f + '?v=' + MARE_V + '"><\/script>'); });
+  </script>
 </body>
 </html>
