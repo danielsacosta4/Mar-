@@ -1,5 +1,5 @@
 /* Maré service worker: keeps the app usable offline and plays downloaded songs. */
-const VERSION = '1.6.0';
+const VERSION = '1.6.1';
 const SHELL = 'mare-shell-' + VERSION;
 const AUDIO = 'mare-audio';
 const ART = 'mare-art';
@@ -10,7 +10,9 @@ const MAX_COVERS = 1500;
 // Library reads worth showing from memory. Anything that changes data clears them (see CHANGES).
 const PAGE_CALLS = new Set(['getAlbumList2', 'getAlbum', 'getArtists', 'getArtist', 'getArtistInfo2', 'getAlbumInfo2', 'getPlaylists', 'getPlaylist', 'getGenres', 'getStarred2', 'getTopSongs']);
 const CHANGES = /^(create|update|delete)Playlist$|^(star|unstar|setRating|startScan)$/;
-const SHELL_FILES = ['./', 'index.html', 'app.css', 'app.js', 'discover.js', 'extras.js', 'collection.js', 'shopping.js', 'timemachine.js', 'moments.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png'];
+const SHELL_FILES = ['./', 'index.html', 'app.css', 'app.js', 'discover.js', 'extras.js', 'collection.js', 'shopping.js', 'timemachine.js', 'moments.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png',
+  // The older-style copy for iOS 12 (see index.html); cached too, so the old phone also starts offline.
+  'legacy-polyfills.js', 'legacy/app.css', ...['app', 'discover', 'extras', 'collection', 'shopping', 'timemachine', 'moments'].map((n) => `legacy/${n}.js`)];
 // Fonts are fetched by the installer; if they're missing the app falls back to system fonts, so don't fail on them.
 const FONT_FILES = ['fonts/archivo.woff2', 'fonts/newsreader.woff2', 'fonts/newsreader-italic.woff2'];
 
@@ -106,7 +108,7 @@ self.addEventListener('fetch', (e) => {
         if (res.ok) {
           const body = await res.clone().text();
           let ok = false;
-          try { ok = JSON.parse(body)['subsonic-response']?.status === 'ok'; } catch { /* not JSON */ }
+          try { const r = JSON.parse(body)['subsonic-response']; ok = !!r && r.status === 'ok'; } catch { /* not JSON */ }
           if (ok) await cache.put(key, new Response(body, { headers: { 'Content-Type': 'application/json' } }));
         }
         return res;
