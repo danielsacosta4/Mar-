@@ -302,7 +302,9 @@ const Offline = {
     else { this.jobs.delete(key); return; }
     if (!songs.length) { this.jobs.delete(key); this.paint(key); return; }
     toast(`Downloading ${name} · ${songs.length} song${songs.length === 1 ? '' : 's'}. You can keep browsing.`);
-    try { await navigator.storage?.persist?.(); } catch { /* ignore */ }
+    // Ask to keep the storage, but don't wait for the answer: Firefox shows a question for it, and until it was
+    // answered the download sat on "Starting…".
+    try { navigator.storage?.persist?.().catch(() => {}); } catch { /* ignore */ }
     const job = { done: 0, total: songs.length, bytes: 0 };
     this.jobs.set(key, job);
     this.paint(key);

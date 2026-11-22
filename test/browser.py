@@ -9,7 +9,10 @@ WEBKIT = NAME == 'webkit'
 def launch(p, **kw):
     if WEBKIT:
         kw.pop('args', None)          # Chromium-only switches
-        return p.webkit.launch(**kw)
+        # WebKit for Linux must NOT find a sound server: with PulseAudio's null sink its clock stops (songs "end" at 0 s).
+        # Firefox is the opposite and needs one, so keep WebKit away from it instead of stopping it.
+        env = dict(os.environ, PULSE_SERVER='unix:/nonexistent', PULSE_RUNTIME_PATH='/nonexistent')
+        return p.webkit.launch(env=env, **kw)
     if NAME == 'firefox':
         kw.pop('args', None)
         return p.firefox.launch(firefox_user_prefs={'media.autoplay.default': 0, 'media.autoplay.blocking_policy': 0}, **kw)

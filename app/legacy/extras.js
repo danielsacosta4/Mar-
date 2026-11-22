@@ -369,7 +369,8 @@ const Offline = {
     }
     toast("Downloading ".concat(name, " \xB7 ").concat(songs.length, " song").concat(songs.length === 1 ? "" : "s", ". You can keep browsing."));
     try {
-      await ((_b = (_a = navigator.storage) == null ? void 0 : _a.persist) == null ? void 0 : _b.call(_a));
+      (_b = (_a = navigator.storage) == null ? void 0 : _a.persist) == null ? void 0 : _b.call(_a).catch(() => {
+      });
     } catch {
     }
     const job = { done: 0, total: songs.length, bytes: 0 };

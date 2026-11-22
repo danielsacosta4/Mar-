@@ -312,7 +312,10 @@ uses `LANG=C.UTF-8` to avoid locale noise.
   parameter (Player.src, downloads, Ahead). Verified against the real server in Firefox, Chromium and WebKit with iPhone rules
   (Opus and MP3). Known leftover: WebKit in desktop (two-player) mode doesn't start the next converted song after a gapless
   handover; iPhone mode (one player) is fine; the owner has no desktop Safari. Lesson: the mock was too kind; playback changes
-  must pass test_navidrome in all three browsers. Installer: `MARE_REF=<commit>` installs an earlier release (rollback).
+  must pass test_navidrome in all three browsers. Also found by running the suites in Firefox: `Offline.download` awaited
+  `navigator.storage.persist()`, for which Firefox shows a permission question, so a download sat on "Starting…" until it
+  was answered; it is no longer awaited. Sandbox note: WebKit-Linux must NOT reach PulseAudio (its clock stops, songs "end"
+  at 0 s) while Firefox needs it; browser.py points WebKit at a non-existent sound server. Installer: `MARE_REF=<commit>` installs an earlier release (rollback).
   Tests: browser.py (chromium / firefox / webkit), real_navidrome.sh, test_navidrome.py, test_streams.py; the sandbox
   environment "Mar-" allows the Playwright and ghcr download hosts and installs WebKit at session start.
 
