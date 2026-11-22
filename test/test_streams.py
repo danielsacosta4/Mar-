@@ -32,8 +32,9 @@ async def main():
               const tt=window.toast; window.toast=(m)=>{__w.toasts.push(m); return tt(m)};
               setInterval(()=>{const w=__w,a=Player.audio,id=Player.current()&&Player.current().id; a.playbackRate=4; const t=Player.pos();
                 w.max[id]=Math.max(w.max[id]||0,t); if(id===w.lastId && Math.abs(t-w.last)<0.02) w.silent+=0.25; w.last=t; w.lastId=id;},250)""")
-            # song 1 is 47 s (12 s at 4x); wait until song 2 has played a while, or 40 s
-            try: await pg.wait_for_function("Player.index>=1 && Player.pos()>8", timeout=40000)
+            # song 1 is 47 s (12 s at 4x); wait until song 2 has played a while
+            # (a stream without a size plays at normal speed whatever the rate, so allow the whole 47 s and more)
+            try: await pg.wait_for_function("Player.index>=1 && Player.pos()>8", timeout=75000)
             except Exception: pass
             r=await pg.evaluate("({w:__w, idx:Player.index, pos:Math.round(Player.pos()), dur:Player.queue[0].duration, paused:Player.audio.paused, log:(store.get('playlog')||[]).map(x=>x.why).reverse()})")
             navi=[x for x in get('__log')[n0:] if x.startswith('navi')]

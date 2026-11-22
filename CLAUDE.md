@@ -57,6 +57,12 @@ test/
   test_*.py       Playwright browser tests (desktop + mobile, light + dark); screenshots to test-output/
                   (core, discovery, round3 = playlists/downloads/offline, round4 = collection + ratings + player bar,
                   round5 = shopping list + time machine, round6 = Moments, round7 = front page cache + play counts + ratings sync, round8 = iPhone player (tap-to-seek, reload position, ahead copies offline), mobile = long phone session (stops, skips, long tasks), legacy = the iOS 12 copy; the mock also answers /mb/* like MusicBrainz)
+  browser.py      Picks the browser for every suite: MARE_BROWSER=chromium (default; finds /opt/pw-browsers/chromium by
+                  itself) or webkit (Safari's engine: `pip install playwright==1.65.2`, `playwright install webkit`,
+                  `playwright install-deps webkit`; needs cdn.playwright.dev allowed). Also tap() / slow_cpu() / phone().
+  test_streams.py How songs end and hand over when the mock streams like the real Navidrome (`/__navi?1`: real FLAC with
+                  ranges; converted Opus/MP3 piped from ffmpeg, chunked, no size, no ranges; estimateContentLength =
+                  duration x kbps x 128 bytes like Navidrome, cut or closed early like Go does). Not in run.sh yet.
   run.sh          Starts the mock and runs all suites
   fakepve/        Fake pct/pveam/pvesh/pvesm/systemctl to exercise mare.sh without Proxmox
 mare.sh         The built installer (~13 KB); this is what the owner's curl command downloads. Commit it with every release.
@@ -290,6 +296,14 @@ uses `LANG=C.UTF-8` to avoid locale noise.
   acorn (sw.js too, whose one `?.` was removed). legacy.py adds CSS stand-ins (old Safari drops unknown declarations). SW caches
   the legacy files. On iOS 12: no lock-screen controls (Media Session is iOS 15), MP3 instead of Opus, flex `gap` missing
   (cosmetic). test_legacy forces the legacy copy at iPhone 6 size. No real iOS 12 device in the sandbox.
+- **WebKit testing (after 1.6.1, tests only)**: all suites pass on Playwright WebKit (Linux build: Safari's engine, not iOS's
+  audio stack, so lock screen / AirPods / background rules can't be seen). test_streams found, with Navidrome-like streams:
+  (1) `estimateContentLength=true` (added in 1.6.0) is WRONG: Navidrome's estimate is larger than the real stream, the
+  response ends early, Chromium stalls ~40 s at the end of every converted song then errors (code 2) and Maré says "can't be
+  played", WebKit never starts the song; converted downloads / ahead copies would fail the same way. Remove it.
+  (2) Without a size: Opus plays fine in both engines; MP3 fails in WebKit-Linux (error 2 after 1 s), fine in Chromium.
+  (3) Fetching the whole converted stream and playing it from a blob URL works in both engines for Opus and MP3 (exact
+  duration, local seeking, clean end; ~0.6 s to fetch a 47 s song from the mock).
 
 ## Roadmap (agreed with the owner; each needs a plan + go-ahead first)
 

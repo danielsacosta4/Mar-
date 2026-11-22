@@ -307,10 +307,13 @@ def navi_stream(s,q):
         s.send_header('Accept-Ranges','bytes'); s.send_header('Content-Type','audio/flac'); s.send_header('Content-Length',str(len(data))); s.end_headers(); return s.wfile.write(data)
     kbps=int(q.get('maxBitRate') or 128); off=int(q.get('timeOffset') or 0)
     cmd=['ffmpeg','-v','0','-i',src,'-ss',str(off),'-map','0:a:0','-b:a',f'{kbps}k']+(['-c:a','libopus','-f','opus'] if fmt=='opus' else ['-f','mp3'])+['-']
+    # HTTP/1.1 like Navidrome behind Caddy: chunked when there is no size; with a size, the bytes simply stop where they stop.
+    s.protocol_version='HTTP/1.1'
     s.send_response(200); s.send_header('Accept-Ranges','none'); s.send_header('Content-Type','audio/ogg' if fmt=='opus' else 'audio/mpeg')
     limit=None
     if q.get('estimateContentLength')=='true': limit=int(d*kbps/8*1024); s.send_header('Content-Length',str(limit))
-    s.end_headers(); s.close_connection=True
+    else: s.send_header('Transfer-Encoding','chunked')
+    s.send_header('Connection','close'); s.end_headers(); s.close_connection=True
     pr=subprocess.Popen(cmd,stdout=subprocess.PIPE); sent=0; total=0
     try:
         while True:
@@ -318,7 +321,9 @@ def navi_stream(s,q):
             if not b: break
             total+=len(b)
             if limit is not None: b=b[:max(0,limit-sent)]
-            if b: s.wfile.write(b); sent+=len(b)
+            if b:
+                s.wfile.write(b if limit is not None else b'%x\r\n'%len(b)+b+b'\r\n'); sent+=len(b)
+        if limit is None: s.wfile.write(b'0\r\n\r\n')
     except Exception: pass
     finally: pr.kill()
     log.append(f"navi {q['id']} {fmt} {kbps} from {off}: real size {total}, announced {limit}, sent {sent}")
