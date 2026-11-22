@@ -11,3 +11,5 @@ sleep 1.5
 for t in test_core test_discovery test_round3 test_round4 test_round5 test_round6 test_round7 test_round8 test_mobile test_legacy test_streams test_navidrome; do
   echo "== $t"; python3 "test/$t.py" "$OUT"
 done
+# Phone playback against the real Navidrome (it switches the server off and on: needs test/real_navidrome.sh's folder).
+echo "== test_navidrome, iPhone rules"; MARE_IPHONE=1 python3 test/test_navidrome.py "$OUT"

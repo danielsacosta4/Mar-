@@ -1,6 +1,6 @@
 /* Maré — a Navidrome (Subsonic / OpenSubsonic) web client. */
 'use strict';
-window.MARE_VERSION = '1.6.2';
+window.MARE_VERSION = '1.7.0';
 
 /* ================= Utilities ================= */
 
@@ -445,6 +445,7 @@ const Player = {
     el._song = song;
     el._offset = offset >= 1 && this.transcodes(song) ? Math.floor(offset) : 0;
     el.src = this.src(song, el._offset);
+    el._local = !el.src.includes('/rest/');   // a copy on this device (download or saved ahead), not a live stream
   },
   // The server can't be reached: play this song's saved copy, else the next song that has one, else stop.
   offlineFallback(song) {
@@ -477,7 +478,14 @@ const Player = {
     const s = el._song;
     if (!s) return;
     t = Math.max(0, Math.min(t, (this.dur(el) || t + 1) - 0.5));
-    if (this.transcodes(s)) {
+    if (!el._local && window.Offline?.localUrl?.(s.id)) {
+      // A complete copy arrived since this live stream started: move to it, where jumping is exact and instant.
+      const playing = !el.paused;
+      this.setSrc(el, s);
+      this.restore(el, s, t);
+      if (playing) el.play().catch(() => {});
+      this.onTime(true);
+    } else if (this.transcodes(s)) {
       const playing = !el.paused;
       this.setSrc(el, s, t);
       if (playing) el.play().catch(() => {});
@@ -533,7 +541,7 @@ const Player = {
       el.addEventListener('playing', mine(() => this.onPlaying()));
       // Diagnostics for the locked iPhone: what the player goes through while the screen is off.
       ['waiting', 'stalled'].forEach((ev) => el.addEventListener(ev, mine(() => {
-        if (this.volLocked && (document.hidden || ev === 'stalled')) this.note(`${ev}${document.hidden ? ' while locked' : ''} (${this.diag(el)})`);
+        if (this.volLocked && !el._local && (document.hidden || ev === 'stalled')) this.note(`${ev}${document.hidden ? ' while locked' : ''} (${this.diag(el)})`);
       })));
       el.addEventListener('timeupdate', mine(() => this.onTime()));
       el.addEventListener('durationchange', mine(() => this.onTime(true)));
@@ -543,6 +551,12 @@ const Player = {
         if (!this.current() || !el.getAttribute('src')) return;
         const code = el.error?.code || '', song = el._song;
         this.note(`error ${code} (${this.diag(el)})`);
+        // A copy saved ahead that can't be read any more (iOS may clear storage): forget it and stream instead.
+        if (el._local && (el.getAttribute('src') || '').startsWith('/ahead/') && navigator.onLine !== false && !window.Offline?.offline) {
+          window.Ahead?.forget(song.id);
+          this.note('saved copy unreadable, streaming instead');
+          return this.reload(song, this.pos());
+        }
         // A dropped connection mid-song shows up as an error. Ask the server first: if it's gone, Maré goes offline and
         // the reload below plays a saved copy when there is one; otherwise pick the song up where it stopped.
         API.call('ping').catch(() => {}).then(() => {

@@ -82,15 +82,18 @@ const Quality = {
   sync(s) {
     const q = qualityOf(s);
     const spec = qualitySpec(Prefs.get('quality'));
-    const conv = !!s && Player.transcodes(s);
     const offline = s && Offline.hasSong(s.id);
+    // Phone playback: the song may be playing from a small copy saved on the device; say so.
+    const a = Player.audio, copy = !!s && a._song === s && !!a._local && !offline;
+    const cspec = copy ? Ahead.spec() : spec;
+    const conv = copy ? !!cspec : !!s && Player.transcodes(s);
     $$('.np-quality, .p-quality').forEach((el) => {
       if (!q) { el.hidden = true; return; }
       el.hidden = false;
       const base = el.classList.contains('np-quality') ? 'np-quality' : 'p-quality';
       el.className = `${base} qbadge ${conv ? 'lossy conv' : q.cls}`;
-      el.innerHTML = conv ? esc(`${specName(spec)} · from ${fileLabel(s)}`) : `${badgeInner({ ...q, label: fileLabel(s) })}${offline ? ' · downloaded' : ''}`;
-      el.title = conv ? `Converted to ${specName(spec)} kbps from the original (${q.detail}). Click to change.` : `${q.detail}. Click to change the streaming quality.`;
+      el.innerHTML = conv ? esc(`${specName(cspec)} · from ${fileLabel(s)}${copy ? ' · on this device' : ''}`) : `${badgeInner({ ...q, label: fileLabel(s) })}${offline ? ' · downloaded' : ''}`;
+      el.title = conv ? `Converted to ${specName(cspec)} kbps from the original (${q.detail}). Click to change.` : `${q.detail}. Click to change the streaming quality.`;
     });
   },
   // Quick picker; changing it applies to the song that's playing straight away.
@@ -268,7 +271,8 @@ const Offline = {
   localUrl(id) {
     if (!navigator.serviceWorker?.controller) return '';
     if (this.hasSong(id)) return `/offline/song/${encodeURIComponent(id)}`;
-    if ((this.offline || navigator.onLine === false) && window.Ahead?.has(id)) return `/ahead/${encodeURIComponent(id)}`;
+    // …or, on iPhone / iPad, whenever the copy is complete ("phone playback", see Ahead).
+    if ((this.offline || navigator.onLine === false || window.Ahead?.phone()) && window.Ahead?.has(id)) return `/ahead/${encodeURIComponent(id)}`;
     return '';
   },
   has(key) { return !!this.db().items[key]; },
@@ -605,8 +609,12 @@ songMenu = function (anchor, s) {
         <div class="set-actions"><select class="select" data-pref="quality">${[['original', 'Original'], ['opus128', 'Opus 128'], ['opus96', 'Opus 96'], ['high', 'MP3 320'], ['normal', 'MP3 192'], ['low', 'MP3 128']].map(([v, l]) => `<option value="${v}"${Prefs.get('quality') === v ? ' selected' : ''}>${l}</option>`).join('')}</select></div></div>
       <div class="set-row"><div><h3>Download quality</h3><p>Original keeps lossless files (large: an album can be 1–2 GB in hi-res). Opus 128 is about half the size of MP3 320 at the same sound quality.</p></div>
         <div class="set-actions"><select class="select" data-pref="dlQuality">${[['opus128', 'Opus 128'], ['high', 'MP3 320'], ['original', 'Original']].map(([v, l]) => `<option value="${v}"${Prefs.get('dlQuality') === v ? ' selected' : ''}>${l}</option>`).join('')}</select></div></div>
-      <div class="set-row"><div><h3>Save the next songs ahead</h3><p>${Offline.supported ? 'While a song plays, the next 3 are saved on this device one at a time, so the music keeps going if the connection drops. They are saved at your download quality and only played when the connection is gone; the last 10 are kept.' : 'Needs the secure (HTTPS) address, like downloads.'}</p></div>
+      <div class="set-row"><div><h3>Save the next songs ahead</h3><p>${!Offline.supported ? 'Needs the secure (HTTPS) address, like downloads.' : locked
+        ? 'On iPhone and iPad, Maré saves the playing song and the next 3 on this device and plays them from there, so a weak connection can\'t stop a song and the next one starts without loading. The last 12 are kept. Turn this off to stream every song live.'
+        : 'While a song plays, the next 3 are saved on this device one at a time, so the music keeps going if the connection drops. They are saved at your download quality and only played when the connection is gone; the last 10 are kept.'}</p></div>
         <label class="switch"><input type="checkbox" data-pref="ahead" ${Ahead.on() ? 'checked' : ''} ${Offline.supported ? '' : 'disabled'}><span></span></label></div>
+      ${locked && Offline.supported ? `<div class="set-row"><div><h3>Phone playback quality</h3><p>The quality of those saved songs. Opus 128 sounds the same as your files through the phone's speaker or Bluetooth earbuds and is 4–8 MB a song. Original streams your files live as before (large, and nothing is saved to play from).</p></div>
+        <div class="set-actions"><select class="select" data-pref="phoneQuality">${[['opus128', CAN_OPUS ? 'Opus 128' : 'MP3 320 (no Opus here)'], ['high', 'MP3 320'], ['original', 'Original (live)']].map(([v, l]) => `<option value="${v}"${(Prefs.get('phoneQuality') || 'opus128') === v ? ' selected' : ''}>${l}</option>`).join('')}</select></div></div>` : ''}
       <div class="set-row"><div><h3>Playback log</h3><p>Why each song changed, newest first. If a song ever skips by itself, the reason shows up here.</p></div>
         <div class="set-actions"><button class="btn" data-playlog>Show</button><button class="btn" data-diag>Copy diagnostics</button></div></div>
       <div class="playlog" hidden></div>
@@ -636,6 +644,7 @@ songMenu = function (anchor, s) {
       if (k === 'rg') Player.applyVolume();
       if (k === 'quality') Player.setQuality(v);
       if (k === 'ahead') { if (v) Ahead.run(); else Ahead.clear(); }
+      if (k === 'phoneQuality') Ahead.run();   // copies at the old quality are dropped there
     });
   };
 })();
@@ -749,53 +758,84 @@ function diagnostics() {
   return lines.join('\n');
 }
 
-/* ================= Next songs saved ahead =================
-   While a song plays, the next 3 of the queue are saved one at a time (after the playing song has loaded), so a dropped
-   connection doesn't stop the music. The service worker plays them from the "mare-ahead" cache; about 10 are kept. */
+/* ================= Songs saved ahead =================
+   Computer: while a song plays, the next 3 of the queue are saved one at a time (after the playing song has loaded),
+   and only played when the server can't be reached.
+   iPhone / iPad ("phone playback"): the playing song and the next 3 are saved as small converted copies and PLAYED from
+   those copies as soon as they are complete. Streaming big originals live left nothing to fall back on when the
+   connection hiccuped mid-song, and a loading gap between songs is when a locked iPhone puts a web app to sleep.
+   The service worker serves the copies from the "mare-ahead" cache. */
 const Ahead = {
-  CACHE: 'mare-ahead', NEXT: 3, KEEP: 10,
-  busy: false, since: 0,
+  CACHE: 'mare-ahead', NEXT: 3,
+  busy: false, since: 0, set: null,
   on() { return Prefs.get('ahead') !== false && Offline.supported; },
+  // Phone playback: iPhone / iPad, unless the owner chose to keep streaming the originals there.
+  phone() { return Player.volLocked && this.on() && Prefs.get('phoneQuality') !== 'original'; },
+  keep() { return this.phone() ? 12 : 10; },
   key(id) { return `/ahead/${id}`; },
-  // Small copies (download quality, Opus 128 by default): they're only played when the connection drops.
-  spec() { return qualitySpec(Prefs.get('dlQuality')); },
+  // Phone: the phone playback quality (Opus 128 unless changed). Computer: the download quality.
+  spec() { return qualitySpec(this.phone() ? Prefs.get('phoneQuality') || 'opus128' : Prefs.get('dlQuality')); },
+  // The copies were made at one quality; when that changes they are thrown away.
+  tag() { const q = this.spec(); return q ? `${q.format}${q.kbps}` : 'original'; },
   list() { return store.get('ahead') || []; },
-  has(id) { return this.list().includes(this.key(id)); },
-  // The playing song has loaded far enough that saving the next ones won't compete with it.
+  has(id) { return (this.set ||= new Set(this.list())).has(this.key(id)); },   // asked many times a second: kept in memory
+  remember(l) { store.set('ahead', l); this.set = new Set(l); },
+  // The playing song has loaded far enough that saving the next ones won't compete with it. The phone doesn't wait:
+  // its copies are small, and the playing song's own copy is the first one it wants.
   ready() {
     const a = Player.audio, d = Player.dur(), b = a.buffered;
     if (Offline.offline || !Player.current()) return false;
-    if (Date.now() - this.since > 30000) return true;
+    if (this.phone() || Date.now() - this.since > 30000) return true;
     return !!(b.length && d && b.end(b.length - 1) + (a._offset || 0) >= d - 2);
   },
   async run() {
     if (this.busy || !this.on() || !this.ready()) return;
-    const next = Player.queue.slice(Player.index + 1, Player.index + 1 + this.NEXT);
+    if (store.get('aheadTag') !== this.tag()) { await this.clear(); store.set('aheadTag', this.tag()); }
+    const from = this.phone() ? Player.index : Player.index + 1;
+    const want = Player.queue.slice(from, Player.index + 1 + this.NEXT);
     const d = Offline.db();
     this.busy = true;
     try {
       const cache = await caches.open(this.CACHE);
-      for (const s of next) {
-        if (d.songs[s.id] || await cache.match(this.key(s.id))) continue;
+      for (const s of want) {
+        if (d.songs[s.id] || this.has(s.id)) continue;
         if (!this.on() || Offline.offline) break;
         const q = this.spec();
         const r = await fetch(API.stream(s.id, q ? { format: q.format, maxBitRate: q.kbps } : null));
         if (!r.ok) continue;
         const blob = await r.blob();
+        if (!blob.size) continue;
         await cache.put(this.key(s.id), new Response(blob, { headers: { 'Content-Type': r.headers.get('Content-Type') || 'audio/mpeg', 'Content-Length': blob.size } }));
         const l = this.list().filter((k) => k !== this.key(s.id)); l.push(this.key(s.id));
-        // Forget the oldest, but never one of the songs coming up.
-        const keepNow = new Set(next.map((x) => this.key(x.id)));
-        while (l.length > this.KEEP) { const i = l.findIndex((k) => !keepNow.has(k)); if (i < 0) break; await cache.delete(l.splice(i, 1)[0]); }
-        store.set('ahead', l);
+        // Forget the oldest, but never the playing song or one of the songs coming up.
+        const keepNow = new Set(Player.queue.slice(Player.index, Player.index + 1 + this.NEXT).map((x) => this.key(x.id)));
+        while (l.length > this.keep()) { const i = l.findIndex((k) => !keepNow.has(k)); if (i < 0) break; await cache.delete(l.splice(i, 1)[0]); }
+        this.remember(l);
       }
     } catch { /* connection trouble: try again later */ } finally { this.busy = false; }
   },
-  async clear() { store.del('ahead'); try { await caches.delete(this.CACHE); } catch { /* ignore */ } },
+  async clear() { store.del('ahead'); this.set = new Set(); try { await caches.delete(this.CACHE); } catch { /* ignore */ } },
+  // A copy that turned out to be gone (iOS may clear storage): stop offering it.
+  forget(id) { this.remember(this.list().filter((k) => k !== this.key(id))); caches.open(this.CACHE).then((c) => c.delete(this.key(id))).catch(() => {}); },
+
+  // Phone playback: a live song that stopped moving (weak connection) carries on from its saved copy when that has
+  // arrived, otherwise the stream is reloaded at the same point. Checked once a second while playing.
+  watch: { id: null, pos: -1, still: 0, acted: 0 },
+  stallCheck() {
+    const a = Player.audio, s = Player.current(), w = this.watch;
+    if (!this.phone() || !s || a.paused || a.ended || UI.scrubbing) { w.still = 0; return; }
+    const p = Player.pos();
+    if (w.id !== s.id || Math.abs(p - w.pos) > 0.05) { w.id = s.id; w.pos = p; w.still = 0; return; }
+    if (++w.still < 5 || a._local || Date.now() - w.acted < 10000) return;
+    w.acted = Date.now(); w.still = 0;
+    if (this.has(s.id)) { Player.note(`stalled, carrying on from the saved copy (${Player.diag()})`); Player.reload(s, p); }
+    else Player.resume(`stalled, reloading (${Player.diag()})`);
+  },
 };
 {
   const playing = Player.onPlaying.bind(Player);
-  Player.onPlaying = function () { Ahead.since = Date.now(); playing(); setTimeout(() => Ahead.run(), 3000); };
-  setInterval(() => { if (!Player.audio.paused && Player.index < Player.queue.length - 1) Ahead.run(); }, 10000);
+  Player.onPlaying = function () { Ahead.since = Date.now(); playing(); setTimeout(() => Ahead.run(), Ahead.phone() ? 800 : 3000); };
+  setInterval(() => { if (!Player.audio.paused && (Ahead.phone() || Player.index < Player.queue.length - 1)) Ahead.run(); }, 10000);
+  setInterval(() => Ahead.stallCheck(), 1000);
 }
 window.Ahead = Ahead;

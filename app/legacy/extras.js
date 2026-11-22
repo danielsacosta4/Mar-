@@ -85,8 +85,10 @@ const Quality = {
   sync(s) {
     const q = qualityOf(s);
     const spec = qualitySpec(Prefs.get("quality"));
-    const conv = !!s && Player.transcodes(s);
     const offline = s && Offline.hasSong(s.id);
+    const a = Player.audio, copy = !!s && a._song === s && !!a._local && !offline;
+    const cspec = copy ? Ahead.spec() : spec;
+    const conv = copy ? !!cspec : !!s && Player.transcodes(s);
     $$(".np-quality, .p-quality").forEach((el) => {
       if (!q) {
         el.hidden = true;
@@ -95,8 +97,8 @@ const Quality = {
       el.hidden = false;
       const base = el.classList.contains("np-quality") ? "np-quality" : "p-quality";
       el.className = "".concat(base, " qbadge ").concat(conv ? "lossy conv" : q.cls);
-      el.innerHTML = conv ? esc("".concat(specName(spec), " \xB7 from ").concat(fileLabel(s))) : "".concat(badgeInner({ ...q, label: fileLabel(s) })).concat(offline ? " \xB7 downloaded" : "");
-      el.title = conv ? "Converted to ".concat(specName(spec), " kbps from the original (").concat(q.detail, "). Click to change.") : "".concat(q.detail, ". Click to change the streaming quality.");
+      el.innerHTML = conv ? esc("".concat(specName(cspec), " \xB7 from ").concat(fileLabel(s)).concat(copy ? " \xB7 on this device" : "")) : "".concat(badgeInner({ ...q, label: fileLabel(s) })).concat(offline ? " \xB7 downloaded" : "");
+      el.title = conv ? "Converted to ".concat(specName(cspec), " kbps from the original (").concat(q.detail, "). Click to change.") : "".concat(q.detail, ". Click to change the streaming quality.");
     });
   },
   // Quick picker; changing it applies to the song that's playing straight away.
@@ -303,10 +305,10 @@ const Offline = {
   // Local copy to play instead of streaming: a download, or (only when the server can't be reached) a song saved ahead.
   // These URLs are answered by the service worker; online streams no longer pass through it at all.
   localUrl(id) {
-    var _a, _b;
+    var _a, _b, _c;
     if (!((_a = navigator.serviceWorker) == null ? void 0 : _a.controller)) return "";
     if (this.hasSong(id)) return "/offline/song/".concat(encodeURIComponent(id));
-    if ((this.offline || navigator.onLine === false) && ((_b = window.Ahead) == null ? void 0 : _b.has(id))) return "/ahead/".concat(encodeURIComponent(id));
+    if ((this.offline || navigator.onLine === false || ((_b = window.Ahead) == null ? void 0 : _b.phone())) && ((_c = window.Ahead) == null ? void 0 : _c.has(id))) return "/ahead/".concat(encodeURIComponent(id));
     return "";
   },
   has(key) {
@@ -683,7 +685,7 @@ songMenu = function(anchor, s) {
     if (!box) return;
     const cf = Prefs.get("crossfade");
     const locked = Player.volLocked;
-    box.insertAdjacentHTML("afterbegin", '\n      <h2 class="set-group">Playback</h2>\n      <div class="set-row"><div><h3>Crossfade</h3><p>'.concat(locked ? "Not available in this browser: iPhone and iPad don't let web apps change volume. Songs still play gaplessly." : "Blend the end of one song into the next. Songs always play without gaps.", '</p></div>\n        <div class="set-actions set-range"><input type="range" min="0" max="12" step="1" value="').concat(cf, '" data-pref="crossfade" ').concat(locked ? "disabled" : "", ' aria-label="Crossfade seconds"><output>').concat(cf ? cf + " s" : "Off", '</output></div></div>\n      <div class="set-row"><div><h3>Keep albums gapless</h3><p>Don\'t crossfade between songs from the same album, so live albums and mixes flow as intended.</p></div>\n        <label class="switch"><input type="checkbox" data-pref="smartFade" ').concat(Prefs.get("smartFade") ? "checked" : "", " ").concat(locked ? "disabled" : "", '><span></span></label></div>\n      <div class="set-row"><div><h3>Volume levelling</h3><p>').concat(locked ? "Not available in this browser (iPhone and iPad)." : "Evens out loud and quiet songs using ReplayGain tags. Automatic uses album levels when you play an album and song levels otherwise.", '</p></div>\n        <div class="set-actions"><select class="select" data-pref="rg" ').concat(locked ? "disabled" : "", ">").concat([["auto", "Automatic"], ["track", "Song"], ["album", "Album"], ["off", "Off"]].map(([v, l]) => '<option value="'.concat(v, '"').concat(Prefs.get("rg") === v ? " selected" : "", ">").concat(l, "</option>")).join(""), '</select></div></div>\n      <div class="set-row"><div><h3>Streaming quality</h3><p>Original plays your files as they are (lossless and hi-res stay intact). The others are converted by Navidrome to save data on mobile: Opus sounds as good as MP3 at about half the size and keeps albums gapless').concat(CAN_OPUS ? "" : " (this device can't play Opus, so it gets MP3 instead)", '.</p></div>\n        <div class="set-actions"><select class="select" data-pref="quality">').concat([["original", "Original"], ["opus128", "Opus 128"], ["opus96", "Opus 96"], ["high", "MP3 320"], ["normal", "MP3 192"], ["low", "MP3 128"]].map(([v, l]) => '<option value="'.concat(v, '"').concat(Prefs.get("quality") === v ? " selected" : "", ">").concat(l, "</option>")).join(""), '</select></div></div>\n      <div class="set-row"><div><h3>Download quality</h3><p>Original keeps lossless files (large: an album can be 1\u20132 GB in hi-res). Opus 128 is about half the size of MP3 320 at the same sound quality.</p></div>\n        <div class="set-actions"><select class="select" data-pref="dlQuality">').concat([["opus128", "Opus 128"], ["high", "MP3 320"], ["original", "Original"]].map(([v, l]) => '<option value="'.concat(v, '"').concat(Prefs.get("dlQuality") === v ? " selected" : "", ">").concat(l, "</option>")).join(""), '</select></div></div>\n      <div class="set-row"><div><h3>Save the next songs ahead</h3><p>').concat(Offline.supported ? "While a song plays, the next 3 are saved on this device one at a time, so the music keeps going if the connection drops. They are saved at your download quality and only played when the connection is gone; the last 10 are kept." : "Needs the secure (HTTPS) address, like downloads.", '</p></div>\n        <label class="switch"><input type="checkbox" data-pref="ahead" ').concat(Ahead.on() ? "checked" : "", " ").concat(Offline.supported ? "" : "disabled", '><span></span></label></div>\n      <div class="set-row"><div><h3>Playback log</h3><p>Why each song changed, newest first. If a song ever skips by itself, the reason shows up here.</p></div>\n        <div class="set-actions"><button class="btn" data-playlog>Show</button><button class="btn" data-diag>Copy diagnostics</button></div></div>\n      <div class="playlog" hidden></div>\n      <h2 class="set-group">Account</h2>'));
+    box.insertAdjacentHTML("afterbegin", '\n      <h2 class="set-group">Playback</h2>\n      <div class="set-row"><div><h3>Crossfade</h3><p>'.concat(locked ? "Not available in this browser: iPhone and iPad don't let web apps change volume. Songs still play gaplessly." : "Blend the end of one song into the next. Songs always play without gaps.", '</p></div>\n        <div class="set-actions set-range"><input type="range" min="0" max="12" step="1" value="').concat(cf, '" data-pref="crossfade" ').concat(locked ? "disabled" : "", ' aria-label="Crossfade seconds"><output>').concat(cf ? cf + " s" : "Off", '</output></div></div>\n      <div class="set-row"><div><h3>Keep albums gapless</h3><p>Don\'t crossfade between songs from the same album, so live albums and mixes flow as intended.</p></div>\n        <label class="switch"><input type="checkbox" data-pref="smartFade" ').concat(Prefs.get("smartFade") ? "checked" : "", " ").concat(locked ? "disabled" : "", '><span></span></label></div>\n      <div class="set-row"><div><h3>Volume levelling</h3><p>').concat(locked ? "Not available in this browser (iPhone and iPad)." : "Evens out loud and quiet songs using ReplayGain tags. Automatic uses album levels when you play an album and song levels otherwise.", '</p></div>\n        <div class="set-actions"><select class="select" data-pref="rg" ').concat(locked ? "disabled" : "", ">").concat([["auto", "Automatic"], ["track", "Song"], ["album", "Album"], ["off", "Off"]].map(([v, l]) => '<option value="'.concat(v, '"').concat(Prefs.get("rg") === v ? " selected" : "", ">").concat(l, "</option>")).join(""), '</select></div></div>\n      <div class="set-row"><div><h3>Streaming quality</h3><p>Original plays your files as they are (lossless and hi-res stay intact). The others are converted by Navidrome to save data on mobile: Opus sounds as good as MP3 at about half the size and keeps albums gapless').concat(CAN_OPUS ? "" : " (this device can't play Opus, so it gets MP3 instead)", '.</p></div>\n        <div class="set-actions"><select class="select" data-pref="quality">').concat([["original", "Original"], ["opus128", "Opus 128"], ["opus96", "Opus 96"], ["high", "MP3 320"], ["normal", "MP3 192"], ["low", "MP3 128"]].map(([v, l]) => '<option value="'.concat(v, '"').concat(Prefs.get("quality") === v ? " selected" : "", ">").concat(l, "</option>")).join(""), '</select></div></div>\n      <div class="set-row"><div><h3>Download quality</h3><p>Original keeps lossless files (large: an album can be 1\u20132 GB in hi-res). Opus 128 is about half the size of MP3 320 at the same sound quality.</p></div>\n        <div class="set-actions"><select class="select" data-pref="dlQuality">').concat([["opus128", "Opus 128"], ["high", "MP3 320"], ["original", "Original"]].map(([v, l]) => '<option value="'.concat(v, '"').concat(Prefs.get("dlQuality") === v ? " selected" : "", ">").concat(l, "</option>")).join(""), '</select></div></div>\n      <div class="set-row"><div><h3>Save the next songs ahead</h3><p>').concat(!Offline.supported ? "Needs the secure (HTTPS) address, like downloads." : locked ? "On iPhone and iPad, Mar\xE9 saves the playing song and the next 3 on this device and plays them from there, so a weak connection can't stop a song and the next one starts without loading. The last 12 are kept. Turn this off to stream every song live." : "While a song plays, the next 3 are saved on this device one at a time, so the music keeps going if the connection drops. They are saved at your download quality and only played when the connection is gone; the last 10 are kept.", '</p></div>\n        <label class="switch"><input type="checkbox" data-pref="ahead" ').concat(Ahead.on() ? "checked" : "", " ").concat(Offline.supported ? "" : "disabled", "><span></span></label></div>\n      ").concat(locked && Offline.supported ? '<div class="set-row"><div><h3>Phone playback quality</h3><p>The quality of those saved songs. Opus 128 sounds the same as your files through the phone\'s speaker or Bluetooth earbuds and is 4\u20138 MB a song. Original streams your files live as before (large, and nothing is saved to play from).</p></div>\n        <div class="set-actions"><select class="select" data-pref="phoneQuality">'.concat([["opus128", CAN_OPUS ? "Opus 128" : "MP3 320 (no Opus here)"], ["high", "MP3 320"], ["original", "Original (live)"]].map(([v, l]) => '<option value="'.concat(v, '"').concat((Prefs.get("phoneQuality") || "opus128") === v ? " selected" : "", ">").concat(l, "</option>")).join(""), "</select></div></div>") : "", '\n      <div class="set-row"><div><h3>Playback log</h3><p>Why each song changed, newest first. If a song ever skips by itself, the reason shows up here.</p></div>\n        <div class="set-actions"><button class="btn" data-playlog>Show</button><button class="btn" data-diag>Copy diagnostics</button></div></div>\n      <div class="playlog" hidden></div>\n      <h2 class="set-group">Account</h2>'));
     $("[data-playlog]", box).addEventListener("click", (e) => {
       const out = $(".playlog", box);
       out.hidden = !out.hidden;
@@ -721,6 +723,7 @@ songMenu = function(anchor, s) {
         if (v) Ahead.run();
         else Ahead.clear();
       }
+      if (k === "phoneQuality") Ahead.run();
     });
   };
 })();
@@ -856,56 +859,80 @@ function diagnostics() {
 const Ahead = {
   CACHE: "mare-ahead",
   NEXT: 3,
-  KEEP: 10,
   busy: false,
   since: 0,
+  set: null,
   on() {
     return Prefs.get("ahead") !== false && Offline.supported;
+  },
+  // Phone playback: iPhone / iPad, unless the owner chose to keep streaming the originals there.
+  phone() {
+    return Player.volLocked && this.on() && Prefs.get("phoneQuality") !== "original";
+  },
+  keep() {
+    return this.phone() ? 12 : 10;
   },
   key(id) {
     return "/ahead/".concat(id);
   },
-  // Small copies (download quality, Opus 128 by default): they're only played when the connection drops.
+  // Phone: the phone playback quality (Opus 128 unless changed). Computer: the download quality.
   spec() {
-    return qualitySpec(Prefs.get("dlQuality"));
+    return qualitySpec(this.phone() ? Prefs.get("phoneQuality") || "opus128" : Prefs.get("dlQuality"));
+  },
+  // The copies were made at one quality; when that changes they are thrown away.
+  tag() {
+    const q = this.spec();
+    return q ? "".concat(q.format).concat(q.kbps) : "original";
   },
   list() {
     return store.get("ahead") || [];
   },
   has(id) {
-    return this.list().includes(this.key(id));
+    return (this.set || (this.set = new Set(this.list()))).has(this.key(id));
   },
-  // The playing song has loaded far enough that saving the next ones won't compete with it.
+  // asked many times a second: kept in memory
+  remember(l) {
+    store.set("ahead", l);
+    this.set = new Set(l);
+  },
+  // The playing song has loaded far enough that saving the next ones won't compete with it. The phone doesn't wait:
+  // its copies are small, and the playing song's own copy is the first one it wants.
   ready() {
     const a = Player.audio, d = Player.dur(), b = a.buffered;
     if (Offline.offline || !Player.current()) return false;
-    if (Date.now() - this.since > 3e4) return true;
+    if (this.phone() || Date.now() - this.since > 3e4) return true;
     return !!(b.length && d && b.end(b.length - 1) + (a._offset || 0) >= d - 2);
   },
   async run() {
     if (this.busy || !this.on() || !this.ready()) return;
-    const next = Player.queue.slice(Player.index + 1, Player.index + 1 + this.NEXT);
+    if (store.get("aheadTag") !== this.tag()) {
+      await this.clear();
+      store.set("aheadTag", this.tag());
+    }
+    const from = this.phone() ? Player.index : Player.index + 1;
+    const want = Player.queue.slice(from, Player.index + 1 + this.NEXT);
     const d = Offline.db();
     this.busy = true;
     try {
       const cache = await caches.open(this.CACHE);
-      for (const s of next) {
-        if (d.songs[s.id] || await cache.match(this.key(s.id))) continue;
+      for (const s of want) {
+        if (d.songs[s.id] || this.has(s.id)) continue;
         if (!this.on() || Offline.offline) break;
         const q = this.spec();
         const r = await fetch(API.stream(s.id, q ? { format: q.format, maxBitRate: q.kbps } : null));
         if (!r.ok) continue;
         const blob = await r.blob();
+        if (!blob.size) continue;
         await cache.put(this.key(s.id), new Response(blob, { headers: { "Content-Type": r.headers.get("Content-Type") || "audio/mpeg", "Content-Length": blob.size } }));
         const l = this.list().filter((k) => k !== this.key(s.id));
         l.push(this.key(s.id));
-        const keepNow = new Set(next.map((x) => this.key(x.id)));
-        while (l.length > this.KEEP) {
+        const keepNow = new Set(Player.queue.slice(Player.index, Player.index + 1 + this.NEXT).map((x) => this.key(x.id)));
+        while (l.length > this.keep()) {
           const i = l.findIndex((k) => !keepNow.has(k));
           if (i < 0) break;
           await cache.delete(l.splice(i, 1)[0]);
         }
-        store.set("ahead", l);
+        this.remember(l);
       }
     } catch {
     } finally {
@@ -914,10 +941,41 @@ const Ahead = {
   },
   async clear() {
     store.del("ahead");
+    this.set = /* @__PURE__ */ new Set();
     try {
       await caches.delete(this.CACHE);
     } catch {
     }
+  },
+  // A copy that turned out to be gone (iOS may clear storage): stop offering it.
+  forget(id) {
+    this.remember(this.list().filter((k) => k !== this.key(id)));
+    caches.open(this.CACHE).then((c) => c.delete(this.key(id))).catch(() => {
+    });
+  },
+  // Phone playback: a live song that stopped moving (weak connection) carries on from its saved copy when that has
+  // arrived, otherwise the stream is reloaded at the same point. Checked once a second while playing.
+  watch: { id: null, pos: -1, still: 0, acted: 0 },
+  stallCheck() {
+    const a = Player.audio, s = Player.current(), w = this.watch;
+    if (!this.phone() || !s || a.paused || a.ended || UI.scrubbing) {
+      w.still = 0;
+      return;
+    }
+    const p = Player.pos();
+    if (w.id !== s.id || Math.abs(p - w.pos) > 0.05) {
+      w.id = s.id;
+      w.pos = p;
+      w.still = 0;
+      return;
+    }
+    if (++w.still < 5 || a._local || Date.now() - w.acted < 1e4) return;
+    w.acted = Date.now();
+    w.still = 0;
+    if (this.has(s.id)) {
+      Player.note("stalled, carrying on from the saved copy (".concat(Player.diag(), ")"));
+      Player.reload(s, p);
+    } else Player.resume("stalled, reloading (".concat(Player.diag(), ")"));
   }
 };
 {
@@ -925,10 +983,11 @@ const Ahead = {
   Player.onPlaying = function() {
     Ahead.since = Date.now();
     playing();
-    setTimeout(() => Ahead.run(), 3e3);
+    setTimeout(() => Ahead.run(), Ahead.phone() ? 800 : 3e3);
   };
   setInterval(() => {
-    if (!Player.audio.paused && Player.index < Player.queue.length - 1) Ahead.run();
+    if (!Player.audio.paused && (Ahead.phone() || Player.index < Player.queue.length - 1)) Ahead.run();
   }, 1e4);
+  setInterval(() => Ahead.stallCheck(), 1e3);
 }
 window.Ahead = Ahead;

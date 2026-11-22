@@ -1,5 +1,5 @@
 /* Maré service worker: keeps the app usable offline and plays downloaded songs. */
-const VERSION = '1.6.2';
+const VERSION = '1.7.0';
 const SHELL = 'mare-shell-' + VERSION;
 const AUDIO = 'mare-audio';
 const ART = 'mare-art';
@@ -38,9 +38,21 @@ async function trimCovers(cache) {
   for (const k of keys.slice(0, Math.max(0, keys.length - MAX_COVERS))) await cache.delete(k);
 }
 
-// Serve a cached file, honouring Range requests (audio elements always ask for ranges).
-async function ranged(resp, range) {
+// The last few small copies stay in memory: an iPhone asks for a song in many small pieces, and reading the whole
+// file from storage for each piece is slow. (Big originals are not kept: that is what made iPhones drop the page.)
+const recent = new Map();
+async function blobOf(key, resp) {
+  const len = resp.headers.get('Content-Length'), had = recent.get(key);
+  if (had && String(had.size) === len) return had;
   const blob = await resp.blob();
+  recent.delete(key);
+  if (blob.size <= 25e6) { recent.set(key, blob); while (recent.size > 3) recent.delete(recent.keys().next().value); }
+  return blob;
+}
+
+// Serve a cached file, honouring Range requests (audio elements always ask for ranges).
+async function ranged(resp, range, key) {
+  const blob = key ? await blobOf(key, resp) : await resp.blob();
   const size = blob.size;
   const type = resp.headers.get('Content-Type') || 'audio/mpeg';
   const m = /bytes=(\d*)-(\d*)/.exec(range || '');
@@ -69,7 +81,8 @@ self.addEventListener('fetch', (e) => {
     const key = local[1] === 'ahead' ? `/ahead/${local[2]}` : `/offline/song/${local[2]}`;
     e.respondWith((async () => {
       const hit = await (await caches.open(local[1] === 'ahead' ? AHEAD : AUDIO)).match(key);
-      return hit ? ranged(hit, req.headers.get('Range')) : new Response('', { status: 404 });
+      if (!hit) { recent.delete(key); return new Response('', { status: 404 }); }
+      return ranged(hit, req.headers.get('Range'), key);
     })());
     return;
   }
