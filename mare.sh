@@ -19,10 +19,13 @@ set -Eeuo pipefail
 export LANG=C.UTF-8 LC_ALL=C.UTF-8
 unset LANGUAGE
 
-MARE_VERSION="1.6.1"
+MARE_VERSION="1.6.2"
 TAG="mare"
 # Where the app comes from: the repository as a tarball (override for testing).
-MARE_SOURCE=${MARE_SOURCE:-https://codeload.github.com/danielsacosta4/Mar-/tar.gz/refs/heads/main}
+# To go back to an earlier release, set MARE_REF to that release's commit (listed with every release):
+#   MARE_REF=<commit> bash -c "$(curl -fsSL https://raw.githubusercontent.com/danielsacosta4/Mar-/main/mare.sh)"
+MARE_REF=${MARE_REF:-refs/heads/main}
+MARE_SOURCE=${MARE_SOURCE:-https://codeload.github.com/danielsacosta4/Mar-/tar.gz/$MARE_REF}
 APP_VERSION=
 
 # ---------- look ----------

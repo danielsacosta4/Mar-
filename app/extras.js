@@ -321,7 +321,7 @@ const Offline = {
         const s = songs[i++];
         if (!(await audio.match(`/offline/song/${s.id}`))) {
           try {
-            const r = await fetch(API.stream(s.id, dq ? { format: dq.format, maxBitRate: dq.kbps, estimateContentLength: true } : null));
+            const r = await fetch(API.stream(s.id, dq ? { format: dq.format, maxBitRate: dq.kbps } : null));
             if (!r.ok) throw new Error(r.status);
             const blob = await r.blob();
             job.bytes += blob.size;
@@ -777,7 +777,7 @@ const Ahead = {
         if (d.songs[s.id] || await cache.match(this.key(s.id))) continue;
         if (!this.on() || Offline.offline) break;
         const q = this.spec();
-        const r = await fetch(API.stream(s.id, q ? { format: q.format, maxBitRate: q.kbps, estimateContentLength: true } : null));
+        const r = await fetch(API.stream(s.id, q ? { format: q.format, maxBitRate: q.kbps } : null));
         if (!r.ok) continue;
         const blob = await r.blob();
         await cache.put(this.key(s.id), new Response(blob, { headers: { 'Content-Type': r.headers.get('Content-Type') || 'audio/mpeg', 'Content-Length': blob.size } }));

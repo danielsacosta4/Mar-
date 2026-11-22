@@ -1,4 +1,4 @@
-"""Which browser the suites run in. MARE_BROWSER=chromium (default) or webkit (Safari's engine, for iPhone-like runs).
+"""Which browser the suites run in. MARE_BROWSER=chromium (default), firefox, or webkit (Safari's engine, for iPhone-like runs).
 MARE_CHROMIUM can point at a Chromium binary; a preinstalled /opt/pw-browsers/chromium is picked up by itself."""
 import os
 
@@ -10,6 +10,9 @@ def launch(p, **kw):
     if WEBKIT:
         kw.pop('args', None)          # Chromium-only switches
         return p.webkit.launch(**kw)
+    if NAME == 'firefox':
+        kw.pop('args', None)
+        return p.firefox.launch(firefox_user_prefs={'media.autoplay.default': 0, 'media.autoplay.blocking_policy': 0}, **kw)
     exe = os.environ.get('MARE_CHROMIUM') or ('/opt/pw-browsers/chromium' if os.path.isfile('/opt/pw-browsers/chromium') else None)
     if exe:
         kw['executable_path'] = exe
@@ -18,7 +21,7 @@ def launch(p, **kw):
 
 async def tap(ctx, pg, x, y):
     """A finger tap at a point (not a click): what the progress bar listens for on phones."""
-    if WEBKIT:
+    if NAME != 'chromium':
         await pg.touchscreen.tap(x, y)
         return
     c = await ctx.new_cdp_session(pg)
@@ -29,7 +32,7 @@ async def tap(ctx, pg, x, y):
 
 async def slow_cpu(ctx, pg, rate=4):
     """Slow the processor down like a phone. Chromium only; returns False where it can't."""
-    if WEBKIT:
+    if NAME != 'chromium':
         return False
     c = await ctx.new_cdp_session(pg)
     await c.send('Emulation.setCPUThrottlingRate', {'rate': rate})

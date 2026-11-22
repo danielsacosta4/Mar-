@@ -66,8 +66,9 @@ async def main():
         streams=[x for x in get('__log') if x.startswith('stream so2')]
         for s in steps: print('step:', s)
         print('watch:', w, '| long tasks >100 ms:', len([x for x in lt if x>100]), '| longest: %s ms' % (max(lt) if lt else 0), '| localStorage: %d KB' % (ls//1024))
-        print('streams all with size estimate:', all(x.endswith(' est') for x in streams if ' opus' in x or ' mp3' in x), '|', streams[:3])
+        print('no stream asks for a size estimate:', not any(x.endswith(' est') for x in streams), '|', streams[-3:])
         print('log:', log[:14])
+        if any(x.endswith(' est') for x in streams): problems.append('a stream asked Navidrome for a size estimate (wrong sizes, see 1.6.2)')
         if w['stops']: problems.append(f"{w['stops']} unexpected stop(s)")
         if any('skipped after error' in x for x in log): problems.append('a song was skipped after an error')
         if not steps[-1][1][0] or not steps[-1][1][1]: problems.append('did not recover when the server came back')

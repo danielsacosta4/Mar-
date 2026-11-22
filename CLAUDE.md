@@ -58,11 +58,19 @@ test/
                   (core, discovery, round3 = playlists/downloads/offline, round4 = collection + ratings + player bar,
                   round5 = shopping list + time machine, round6 = Moments, round7 = front page cache + play counts + ratings sync, round8 = iPhone player (tap-to-seek, reload position, ahead copies offline), mobile = long phone session (stops, skips, long tasks), legacy = the iOS 12 copy; the mock also answers /mb/* like MusicBrainz)
   browser.py      Picks the browser for every suite: MARE_BROWSER=chromium (default; finds /opt/pw-browsers/chromium by
-                  itself) or webkit (Safari's engine: `pip install playwright==1.65.2`, `playwright install webkit`,
-                  `playwright install-deps webkit`; needs cdn.playwright.dev allowed). Also tap() / slow_cpu() / phone().
-  test_streams.py How songs end and hand over when the mock streams like the real Navidrome (`/__navi?1`: real FLAC with
-                  ranges; converted Opus/MP3 piped from ffmpeg, chunked, no size, no ranges; estimateContentLength =
-                  duration x kbps x 128 bytes like Navidrome, cut or closed early like Go does). Not in run.sh yet.
+                  itself), firefox (the owner's desktop browser) or webkit (Safari's engine). Install with
+                  `pip install playwright==1.65.2`, `playwright install webkit firefox`, `playwright install-deps webkit`
+                  (needs cdn.playwright.dev). Firefox only plays sound with a sound device: `apt-get install pulseaudio`,
+                  `pulseaudio -D --exit-idle-time=-1`, `pactl load-module module-null-sink`; without it EVERY song gives
+                  "error 3: Failed to decode media". Also tap() / slow_cpu() / phone().
+  real_navidrome.sh  setup | start | stop: the official Navidrome (ghcr.io image unpacked, no Docker) with 12 generated
+                  FLAC songs on 127.0.0.1:4533, admin / secret. `start` empties the transcoding cache (a converted song
+                  is only "new" once: cached transcodes are served with ranges and the true size, new ones chunked).
+  test_navidrome.py  Maré against that real Navidrome with converted quality (MARE_QUALITY, default opus128;
+                  MARE_IPHONE=1 = iPhone rules): new songs start, seek, next, song end. Prints SKIPPED without a server.
+                  Run it in all three browsers before a release that touches playback.
+  test_streams.py Same idea against an IMITATION of Navidrome's streaming in the mock (`/__navi?1`). Runs anywhere, but
+                  it is an imitation: its MP3 stream fails in WebKit-Linux while the real one plays.
   run.sh          Starts the mock and runs all suites
   fakepve/        Fake pct/pveam/pvesh/pvesm/systemctl to exercise mare.sh without Proxmox
 mare.sh         The built installer (~13 KB); this is what the owner's curl command downloads. Commit it with every release.
@@ -170,7 +178,7 @@ so every patch is in place before the first render (offline, the ping fails fast
    stylesheet/script in `index.html` together; build.sh refuses to build if they disagree). The `?v=` matters: the
    owner's NPMplus may cache .css/.js ("Cache Assets"), which served 1.4's app.css with 1.5's scripts.
 2. `build/build.sh <version>` → new `app/legacy/` and `mare.sh` (needs network for `npx esbuild@0.24.0` / `acorn@8.14.0`;
-   the legacy files must parse as ES2019 or the build stops). The version lives in index.html's loader as `MARE_V`. Since 1.5 the installer doesn't carry the app: it downloads the
+   the legacy files must parse as ES2019 or the build stops). The version lives in index.html's loader as `MARE_V`. Give the owner the release's commit with every release (for `MARE_REF` rollback). Since 1.5 the installer doesn't carry the app: it downloads the
    repository tarball (`MARE_SOURCE`, default codeload.github.com/…/tar.gz/refs/heads/main), extracts `app/`
    (fonts included), reads the version from app.js, and only then touches the container; a failed download changes
    nothing. So a release is live once it's merged to main (the raw mare.sh may lag ~5 min behind GitHub's cache).
@@ -296,14 +304,17 @@ uses `LANG=C.UTF-8` to avoid locale noise.
   acorn (sw.js too, whose one `?.` was removed). legacy.py adds CSS stand-ins (old Safari drops unknown declarations). SW caches
   the legacy files. On iOS 12: no lock-screen controls (Media Session is iOS 15), MP3 instead of Opus, flex `gap` missing
   (cosmetic). test_legacy forces the legacy copy at iPhone 6 size. No real iOS 12 device in the sandbox.
-- **WebKit testing (after 1.6.1, tests only)**: all suites pass on Playwright WebKit (Linux build: Safari's engine, not iOS's
-  audio stack, so lock screen / AirPods / background rules can't be seen). test_streams found, with Navidrome-like streams:
-  (1) `estimateContentLength=true` (added in 1.6.0) is WRONG: Navidrome's estimate is larger than the real stream, the
-  response ends early, Chromium stalls ~40 s at the end of every converted song then errors (code 2) and Maré says "can't be
-  played", WebKit never starts the song; converted downloads / ahead copies would fail the same way. Remove it.
-  (2) Without a size: Opus plays fine in both engines; MP3 fails in WebKit-Linux (error 2 after 1 s), fine in Chromium.
-  (3) Fetching the whole converted stream and playing it from a blob URL works in both engines for Opus and MP3 (exact
-  duration, local seeking, clean end; ~0.6 s to fetch a 47 s song from the mock).
+- **1.6.2**: 1.6.0's `estimateContentLength=true` broke converted quality everywhere. Navidrome's estimate
+  (duration x kbps x 128 bytes) is larger than the real stream, so a NEW transcode announces too many bytes and ends "early":
+  Firefox (the owner's desktop browser) refuses it with error 4 at 0 s ("every track after the first is not playable": the
+  first had been converted before and came from Navidrome's cache with its true size), Chromium hangs at the end of the song,
+  WebKit never starts it. Reproduced with the owner's exact log against a real Navidrome 0.64.2 and fixed by removing the
+  parameter (Player.src, downloads, Ahead). Verified against the real server in Firefox, Chromium and WebKit with iPhone rules
+  (Opus and MP3). Known leftover: WebKit in desktop (two-player) mode doesn't start the next converted song after a gapless
+  handover; iPhone mode (one player) is fine; the owner has no desktop Safari. Lesson: the mock was too kind; playback changes
+  must pass test_navidrome in all three browsers. Installer: `MARE_REF=<commit>` installs an earlier release (rollback).
+  Tests: browser.py (chromium / firefox / webkit), real_navidrome.sh, test_navidrome.py, test_streams.py; the sandbox
+  environment "Mar-" allows the Playwright and ghcr download hosts and installs WebKit at session start.
 
 ## Roadmap (agreed with the owner; each needs a plan + go-ahead first)
 

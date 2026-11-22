@@ -1,5 +1,5 @@
 "use strict";
-window.MARE_VERSION = "1.6.1";
+window.MARE_VERSION = "1.6.2";
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 const esc = (s) => String(s != null ? s : "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -553,7 +553,7 @@ const Player = {
     const local = (_b = (_a = window.Offline) == null ? void 0 : _a.localUrl) == null ? void 0 : _b.call(_a, song.id);
     if (local) return local;
     const q = qualitySpec(Prefs.get("quality"));
-    return API.stream(song.id, q ? { format: q.format, maxBitRate: q.kbps, estimateContentLength: true, ...offset >= 1 ? { timeOffset: Math.floor(offset) } : {} } : null);
+    return API.stream(song.id, q ? { format: q.format, maxBitRate: q.kbps, ...offset >= 1 ? { timeOffset: Math.floor(offset) } : {} } : null);
   },
   setSrc(el, song, offset = 0) {
     if (el === this.audio) this.ownPause = Date.now();
