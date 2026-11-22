@@ -74,9 +74,8 @@ class H(SimpleHTTPRequestHandler):
             if STATE.get('real'):
                 d=next((x['duration'] for x in songs if x['id']==q['id']),8)-int(q.get('timeOffset') or 0)
                 data=LONG.setdefault(d,tone(max(1,d)))
-            if q.get('format') and q.get('format')!='raw' and q.get('estimateContentLength')!='true':
-                # Like Navidrome converting on the fly: no size, no ranges (estimateContentLength adds a size).
-                s.send_response(200); s.send_header('Content-Type','audio/wav'); s.end_headers(); s.close_connection=True; return s.wfile.write(data)
+            # Plain mode keeps every stream simple (a WAV with its size and byte ranges): these suites test Maré's own logic.
+            # How converted streams really arrive is covered by /__navi (imitation) and test_navidrome (the real server).
             if rng:
                 a,b=rng.replace('bytes=','').split('-'); a=int(a or 0); b=int(b) if b else len(data)-1
                 s.send_response(206); s.send_header('Content-Range',f'bytes {a}-{b}/{len(data)}'); data=data[a:b+1]
@@ -313,7 +312,7 @@ def navi_stream(s,q):
     limit=None
     if q.get('estimateContentLength')=='true': limit=int(d*kbps/8*1024); s.send_header('Content-Length',str(limit))
     else: s.send_header('Transfer-Encoding','chunked')
-    s.send_header('Connection','close'); s.end_headers(); s.close_connection=True
+    s.send_header('X-Content-Duration',str(d)); s.send_header('Connection','close'); s.end_headers(); s.close_connection=True
     pr=subprocess.Popen(cmd,stdout=subprocess.PIPE); sent=0; total=0
     try:
         while True:

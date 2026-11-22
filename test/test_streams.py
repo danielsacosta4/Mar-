@@ -28,11 +28,11 @@ async def main():
                 await pg.evaluate("const st=API.stream.bind(API); API.stream=(id,x)=>st(id, x ? {...x, estimateContentLength:true} : x)")
             n0=len(get('__log'))
             await pg.goto(B+'#/album/al2'); await pg.wait_for_selector('.track'); await pg.click('.track >> nth=0')
-            await pg.evaluate("""window.__w={max:{},toasts:[],silent:0,last:-1,lastId:null,t0:Date.now(),events:[]};
+            await pg.evaluate("""window.__w={max:{},toasts:[],silent:0,started:false,last:-1,lastId:null,t0:Date.now(),events:[]};
               const el=Player.audio; ['error','ended','stalled','waiting'].forEach(ev=>el.addEventListener(ev,()=>__w.events.push(ev+(ev==='error'?' '+(el.error&&el.error.code):'')+'@'+Math.round(Player.pos()))));
               const tt=window.toast; window.toast=(m)=>{__w.toasts.push(m); return tt(m)};
               setInterval(()=>{const w=__w,a=Player.audio,id=Player.current()&&Player.current().id; a.playbackRate=4; const t=Player.pos();
-                w.max[id]=Math.max(w.max[id]||0,t); if(id===w.lastId && Math.abs(t-w.last)<0.02) w.silent+=0.25; w.last=t; w.lastId=id;},250)""")
+                w.max[id]=Math.max(w.max[id]||0,t); if(t>0.5) w.started=true; if(w.started && id===w.lastId && Math.abs(t-w.last)<0.02) w.silent+=0.25; w.last=t; w.lastId=id;},250)""")
             # song 1 is 47 s (12 s at 4x); wait until song 2 has played a while
             # (a stream without a size plays at normal speed whatever the rate, so allow the whole 47 s and more)
             try: await pg.wait_for_function("Player.index>=1 && Player.pos()>8", timeout=75000)
