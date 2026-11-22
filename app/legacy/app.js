@@ -1,5 +1,5 @@
 "use strict";
-window.MARE_VERSION = "1.6.2";
+window.MARE_VERSION = "1.7.0";
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 const esc = (s) => String(s != null ? s : "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -560,6 +560,7 @@ const Player = {
     el._song = song;
     el._offset = offset >= 1 && this.transcodes(song) ? Math.floor(offset) : 0;
     el.src = this.src(song, el._offset);
+    el._local = !el.src.includes("/rest/");
   },
   // The server can't be reached: play this song's saved copy, else the next song that has one, else stop.
   offlineFallback(song) {
@@ -611,10 +612,18 @@ const Player = {
     return d && isFinite(d) ? d : (s == null ? void 0 : s.duration) || 0;
   },
   seek(t, el = this.audio) {
+    var _a, _b;
     const s = el._song;
     if (!s) return;
     t = Math.max(0, Math.min(t, (this.dur(el) || t + 1) - 0.5));
-    if (this.transcodes(s)) {
+    if (!el._local && ((_b = (_a = window.Offline) == null ? void 0 : _a.localUrl) == null ? void 0 : _b.call(_a, s.id))) {
+      const playing = !el.paused;
+      this.setSrc(el, s);
+      this.restore(el, s, t);
+      if (playing) el.play().catch(() => {
+      });
+      this.onTime(true);
+    } else if (this.transcodes(s)) {
       const playing = !el.paused;
       this.setSrc(el, s, t);
       if (playing) el.play().catch(() => {
@@ -696,13 +705,13 @@ const Player = {
       }));
       el.addEventListener("playing", mine(() => this.onPlaying()));
       ["waiting", "stalled"].forEach((ev) => el.addEventListener(ev, mine(() => {
-        if (this.volLocked && (document.hidden || ev === "stalled")) this.note("".concat(ev).concat(document.hidden ? " while locked" : "", " (").concat(this.diag(el), ")"));
+        if (this.volLocked && !el._local && (document.hidden || ev === "stalled")) this.note("".concat(ev).concat(document.hidden ? " while locked" : "", " (").concat(this.diag(el), ")"));
       })));
       el.addEventListener("timeupdate", mine(() => this.onTime()));
       el.addEventListener("durationchange", mine(() => this.onTime(true)));
       el.addEventListener("ended", mine(() => this.onEnded()));
       el.addEventListener("error", (e) => {
-        var _a2;
+        var _a2, _b2, _c;
         if (el !== this.audio) {
           this.preId = null;
           return;
@@ -710,6 +719,11 @@ const Player = {
         if (!this.current() || !el.getAttribute("src")) return;
         const code = ((_a2 = el.error) == null ? void 0 : _a2.code) || "", song = el._song;
         this.note("error ".concat(code, " (").concat(this.diag(el), ")"));
+        if (el._local && (el.getAttribute("src") || "").startsWith("/ahead/") && navigator.onLine !== false && !((_b2 = window.Offline) == null ? void 0 : _b2.offline)) {
+          (_c = window.Ahead) == null ? void 0 : _c.forget(song.id);
+          this.note("saved copy unreadable, streaming instead");
+          return this.reload(song, this.pos());
+        }
         API.call("ping").catch(() => {
         }).then(() => {
           var _a3;

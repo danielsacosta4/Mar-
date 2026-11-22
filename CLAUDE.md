@@ -67,7 +67,8 @@ test/
                   FLAC songs on 127.0.0.1:4533, admin / secret. `start` empties the transcoding cache (a converted song
                   is only "new" once: cached transcodes are served with ranges and the true size, new ones chunked).
   test_navidrome.py  Maré against that real Navidrome with converted quality (MARE_QUALITY, default opus128;
-                  MARE_IPHONE=1 = iPhone rules): new songs start, seek, next, song end. Prints SKIPPED without a server.
+                  MARE_IPHONE=1 = phone playback under iPhone rules, incl. switching the server off; needs MARE_ND_DIR when the
+                  server isn't in /tmp/mare-navidrome): new songs start, seek, next, song end. Prints SKIPPED without a server.
                   Run it in all three browsers before a release that touches playback.
   test_streams.py Same idea against an IMITATION of Navidrome's streaming in the mock (`/__navi?1`). Runs anywhere, but
                   it is an imitation: its MP3 stream fails in WebKit-Linux while the real one plays.
@@ -319,6 +320,21 @@ uses `LANG=C.UTF-8` to avoid locale noise.
   again (a size-less variant only confused WebKit-Linux); stream realism lives in `/__navi` and test_navidrome. Installer: `MARE_REF=<commit>` installs an earlier release (rollback).
   Tests: browser.py (chromium / firefox / webkit), real_navidrome.sh, test_navidrome.py, test_streams.py; the sandbox
   environment "Mar-" allows the Playwright and ghcr download hosts and installs WebKit at session start.
+- **1.7.0** "the iPhone keeps playing": the owner's real complaint is the iPhone on ORIGINAL quality (hi-res FLAC streamed
+  live): music stops mid-song and the next song doesn't start. Phone playback (`Ahead.phone()` = `volLocked` + the "ahead"
+  switch on + `phoneQuality` not `original`): `Ahead` saves the PLAYING song and the next 3 as small converted copies
+  (`phoneQuality`, default Opus 128 → MP3 320 without Opus; cache `mare-ahead`, last 12, copies dropped when the quality
+  changes via `aheadTag`) and `Offline.localUrl()` returns `/ahead/<id>` whenever a copy is complete, so song 2 onwards plays
+  from the device: no loading gap at a song's end, nothing to wait for mid-song. Song 1 starts live at once; `Player.seek()`
+  moves a live song to its copy when one has arrived (`el._local` marks an element playing a device copy); `Ahead.stallCheck()`
+  (every second) carries a live song that stopped moving for 5 s on from its copy, or reloads the stream. A copy that can't
+  be read (iOS cleared storage) is forgotten and the song streams (`Ahead.forget`, error handler). sw.js keeps the last 3
+  copies under 25 MB in memory (`recent`) so range requests don't re-read the file. The quality badge says
+  "Opus 128 · from FLAC 24/96 · on this device". Settings (iPhone/iPad only): Phone playback quality. Computers unchanged.
+  test_navidrome with `MARE_IPHONE=1` (also at the end of run.sh): real Navidrome, copies saved, seek, ~0.3 s handovers, the
+  server switched OFF mid-album and three songs still play, saving resumes when it is back; passes in WebKit, Chromium and
+  Firefox (Firefox's timing not counted). Not testable here: a locked iPhone, AirPods. Agreed acceptance on the owner's
+  phone: 20 songs in a row locked without a stop; if still bad after a week of use, stop work on the iPhone version.
 
 ## Roadmap (agreed with the owner; each needs a plan + go-ahead first)
 
