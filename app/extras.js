@@ -618,7 +618,11 @@ songMenu = function (anchor, s) {
       <div class="set-row"><div><h3>Playback log</h3><p>Why each song changed, newest first. If a song ever skips by itself, the reason shows up here.</p></div>
         <div class="set-actions"><button class="btn" data-playlog>Show</button><button class="btn" data-diag>Copy diagnostics</button></div></div>
       <div class="playlog" hidden></div>
+      <h2 class="set-group">Maré</h2>
+      <div class="set-row"><div><h3>Updates</h3><p class="upd-line">Version ${esc(window.MARE_VERSION)}.</p></div>
+        <div class="set-actions"><button class="btn" data-reload hidden>Reload</button></div></div>
       <h2 class="set-group">Account</h2>`);
+    updateStatus(box);
     $('[data-playlog]', box).addEventListener('click', (e) => {
       const out = $('.playlog', box);
       out.hidden = !out.hidden;
@@ -739,6 +743,28 @@ Offline.register();
 if (navigator.onLine === false) Offline.setOffline(true);
 window.Offline = Offline;
 window.Playlists = Playlists;
+
+// Settings → Updates: what the container's own updater last did (update.json, written by mare-update every hour).
+async function updateStatus(box) {
+  const line = $('.upd-line', box), btn = $('[data-reload]', box), v = window.MARE_VERSION;
+  if (!line) return;
+  btn.onclick = () => location.reload();
+  let j = null;
+  try { const r = await fetch('update.json?' + Date.now(), { cache: 'no-store' }); if (r.ok) j = await r.json(); } catch { /* no updater here */ }
+  if (!line.isConnected) return;
+  if (!j || !j.state) { line.textContent = `Version ${v}. Updates are installed by running the update command on the Proxmox host.`; return; }
+  const when = j.checked ? new Date(j.checked).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
+  const text = {
+    current: `Maré updates itself. Last checked ${when}: up to date.`,
+    updated: `Maré updates itself. Updated on ${when}.`,
+    failed: `${j.note || 'The last update failed.'} (${when})`,
+    pinned: 'Kept on this version on purpose. Run the plain update command on the Proxmox host to follow new releases again.',
+    off: 'Automatic updates are switched off. Run the update command on the Proxmox host to update.',
+    offline: `Maré updates itself. ${j.note || 'It could not reach GitHub'} (${when}); it tries again every hour.`,
+  }[j.state] || '';
+  if (j.installed && j.installed !== v) { line.textContent = `Version ${j.installed} is installed; this window still shows ${v}. Reload to use the new one.`; btn.hidden = false; }
+  else line.textContent = `Version ${v}. ${text}`;
+}
 
 // Everything worth knowing about playback problems on this device, as plain text to paste (no passwords or tokens).
 function diagnostics() {

@@ -11,7 +11,7 @@ async def main():
         errs=[]
         ctx=await br.new_context(viewport={'width':1300,'height':860})
         pg=await ctx.new_page()
-        pg.on('console', lambda m: m.type=='error' and 'TUNNEL' not in m.text and errs.append(m.text))
+        pg.on('console', lambda m: m.type=='error' and 'TUNNEL' not in m.text and 'status of 404' not in m.text and errs.append(m.text))   # 404 = no update.json yet
         pg.on('pageerror', lambda e: errs.append(f'PAGEERR: {e}'))
         await pg.goto(B)
         await pg.fill('input[name=user]','demo'); await pg.fill('input[name=pass]','secret'); await pg.click('button[type=submit]')
@@ -54,6 +54,15 @@ async def main():
         await pg.wait_for_function("!document.querySelector('[data-act=\"rate-sync-all\"]').disabled", timeout=60000)
         al=sent()[n0:]
         print('send all:', len([x for x in al if 'feedback' in x['path']]), 'loves |', len([x for x in al if x['path']=='/mb/rating']), 'MB requests |', await pg.text_content('#toast'))
+        # Settings -> Updates: what the container's updater reported (update.json)
+        async def upd(q):
+            urlopen(B+'__update?'+q).read(); await pg.goto(B+'#/'); await pg.goto(B+'#/settings'); await pg.wait_for_selector('.upd-line'); await pg.wait_for_timeout(500)
+            return (await pg.text_content('.upd-line')).strip()[:110], await pg.locator('[data-reload]:visible').count()
+        print('updates, no updater:', await upd(''))
+        print('updates, up to date:', await upd('current'))
+        print('updates, pinned:', await upd('pinned'))
+        print('updates, newer on server:', await upd('updated&9.9.9'))
+        urlopen(B+'__update?').read()
         print('ERRORS:', errs or 'none')
         await br.close()
 asyncio.run(main())

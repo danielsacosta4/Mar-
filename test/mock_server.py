@@ -330,6 +330,14 @@ _get2=H.do_GET
 def do_GET2(s):
     u=urlparse(s.path)
     if u.path=='/__navi': STATE['navi']=u.query=='1'; return s.send_json(STATE)
+    # The container's updater status (update.json). /__update?<state>[&<installed version>] sets it, /__update? removes it.
+    if u.path=='/__update':
+        st,_,ver=u.query.partition('&')
+        STATE['update']={"checked":time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),"installed":ver or open(os.path.join(ROOT,'app.js')).read().split("MARE_VERSION = '")[1].split("'")[0],"state":st,"note":"Could not reach GitHub" if st=='offline' else ""} if st else None
+        return s.send_json(STATE['update'] or {})
+    if u.path=='/update.json':
+        if STATE.get('update'): return s.send_json(STATE['update'])
+        s.send_response(404); s.end_headers(); return
     return _get2(s)
 H.do_GET=do_GET2
 ThreadingHTTPServer(('127.0.0.1',8765),H).serve_forever()
