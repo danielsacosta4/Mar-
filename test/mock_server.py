@@ -69,6 +69,7 @@ class H(SimpleHTTPRequestHandler):
         if m=='stream':
             log.append('stream '+q['id']+' '+q.get('format','orig')+(' est' if q.get('estimateContentLength')=='true' else ''))
             if STATE.get('down'): s.close_connection=True; s.connection.shutdown(2); return   # network failure (test_round8)
+            if STATE.get('navi'): return navi_stream(s,q)
             rng=s.headers.get('Range'); data=WAV
             if STATE.get('real'):
                 d=next((x['duration'] for x in songs if x['id']==q['id']),8)-int(q.get('timeOffset') or 0)
@@ -281,4 +282,50 @@ def do_POST(s):
     if u.path in ('/lb/1/feedback/recording-feedback','/mb/rating'): return s.send_json({"status":"ok"})
     s.send_response(404); s.end_headers()
 H.do_POST=do_POST
+# /__navi?1: streams behave like the real Navidrome (test_streams). Originals are real FLAC files with byte ranges;
+# converted ones come from the same ffmpeg command Navidrome runs, sent as they are produced, with no size and no ranges.
+# With estimateContentLength the size Navidrome announces is duration x kbps x 128 bytes, which is rarely the real size:
+# Go then cuts the response at that size, or closes it early when the real stream is shorter.
+import subprocess, tempfile
+SRC={}
+def source(d):
+    if d not in SRC:
+        f=os.path.join(tempfile.gettempdir(),f'mare-src-{d}.flac')
+        if not os.path.exists(f):
+            subprocess.run(['ffmpeg','-v','0','-y','-f','lavfi','-i',f'sine=f=330:d={d}','-f','lavfi','-i',f'anoisesrc=d={d}:c=pink:a=0.25',
+                '-filter_complex','amix=inputs=2:duration=first','-ac','2','-ar','44100','-c:a','flac',f],check=True)
+        SRC[d]=f
+    return SRC[d]
+def navi_stream(s,q):
+    d=next((x['duration'] for x in songs if x['id']==q['id']),8); src=source(d); fmt=q.get('format')
+    if not fmt or fmt=='raw':
+        data=open(src,'rb').read(); rng=s.headers.get('Range')
+        if rng:
+            a,b=rng.replace('bytes=','').split('-'); a=int(a or 0); b=min(int(b),len(data)-1) if b else len(data)-1
+            s.send_response(206); s.send_header('Content-Range',f'bytes {a}-{b}/{len(data)}'); data=data[a:b+1]
+        else: s.send_response(200)
+        s.send_header('Accept-Ranges','bytes'); s.send_header('Content-Type','audio/flac'); s.send_header('Content-Length',str(len(data))); s.end_headers(); return s.wfile.write(data)
+    kbps=int(q.get('maxBitRate') or 128); off=int(q.get('timeOffset') or 0)
+    cmd=['ffmpeg','-v','0','-i',src,'-ss',str(off),'-map','0:a:0','-b:a',f'{kbps}k']+(['-c:a','libopus','-f','opus'] if fmt=='opus' else ['-f','mp3'])+['-']
+    s.send_response(200); s.send_header('Accept-Ranges','none'); s.send_header('Content-Type','audio/ogg' if fmt=='opus' else 'audio/mpeg')
+    limit=None
+    if q.get('estimateContentLength')=='true': limit=int(d*kbps/8*1024); s.send_header('Content-Length',str(limit))
+    s.end_headers(); s.close_connection=True
+    pr=subprocess.Popen(cmd,stdout=subprocess.PIPE); sent=0; total=0
+    try:
+        while True:
+            b=pr.stdout.read(16384)
+            if not b: break
+            total+=len(b)
+            if limit is not None: b=b[:max(0,limit-sent)]
+            if b: s.wfile.write(b); sent+=len(b)
+    except Exception: pass
+    finally: pr.kill()
+    log.append(f"navi {q['id']} {fmt} {kbps} from {off}: real size {total}, announced {limit}, sent {sent}")
+_get2=H.do_GET
+def do_GET2(s):
+    u=urlparse(s.path)
+    if u.path=='/__navi': STATE['navi']=u.query=='1'; return s.send_json(STATE)
+    return _get2(s)
+H.do_GET=do_GET2
 ThreadingHTTPServer(('127.0.0.1',8765),H).serve_forever()
