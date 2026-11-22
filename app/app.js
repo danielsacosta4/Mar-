@@ -1,6 +1,6 @@
 /* Maré — a Navidrome (Subsonic / OpenSubsonic) web client. */
 'use strict';
-window.MARE_VERSION = '1.6.1';
+window.MARE_VERSION = '1.6.2';
 
 /* ================= Utilities ================= */
 
@@ -436,8 +436,9 @@ const Player = {
     const local = window.Offline?.localUrl?.(song.id);
     if (local) return local;
     const q = qualitySpec(Prefs.get('quality'));
-    // estimateContentLength: a converted stream otherwise has no size, and iPhones stop such streams early.
-    return API.stream(song.id, q ? { format: q.format, maxBitRate: q.kbps, estimateContentLength: true, ...(offset >= 1 ? { timeOffset: Math.floor(offset) } : {}) } : null);
+    // Never ask for estimateContentLength: Navidrome's estimate is larger than the real stream, which then ends
+    // "early" (1.6.0 did: Firefox refused new songs with error 4, Safari never started them, Chrome hung at the end).
+    return API.stream(song.id, q ? { format: q.format, maxBitRate: q.kbps, ...(offset >= 1 ? { timeOffset: Math.floor(offset) } : {}) } : null);
   },
   setSrc(el, song, offset = 0) {
     if (el === this.audio) this.ownPause = Date.now();   // a new source pauses the element: that's us, not the headphones

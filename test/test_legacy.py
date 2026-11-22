@@ -1,12 +1,13 @@
 # 1.6.1: the older-style copy for iOS 12 (iPhone 6). Forces it with localStorage mare.forceLegacy and walks the app.
 import asyncio, sys, os
 from playwright.async_api import async_playwright
+from browser import launch, phone, WEBKIT
 SP=sys.argv[1] if len(sys.argv)>1 else 'test-output'; os.makedirs(SP, exist_ok=True); B=os.environ.get('MARE_URL','http://127.0.0.1:8765/')
 async def main():
     async with async_playwright() as p:
-        br=await p.chromium.launch(args=['--autoplay-policy=no-user-gesture-required'])
+        br=await launch(p, args=['--autoplay-policy=no-user-gesture-required'])
         errs=[]
-        ctx=await br.new_context(viewport={'width':375,'height':667},has_touch=True,is_mobile=True)   # iPhone 6 size
+        ctx=await br.new_context(**phone(p, 375, 667))   # iPhone 6 size
         await ctx.add_init_script("try { localStorage.setItem('mare.forceLegacy','1') } catch (e) {}")
         pg=await ctx.new_page()
         pg.on('console', lambda m: m.type=='error' and 'Failed to load resource' not in m.text and errs.append(m.text))

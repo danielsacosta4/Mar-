@@ -2,13 +2,14 @@
 import asyncio, sys, os, json
 from urllib.request import urlopen
 from playwright.async_api import async_playwright
+from browser import launch, tap, phone, WEBKIT
 SP=sys.argv[1] if len(sys.argv)>1 else 'test-output'; os.makedirs(SP, exist_ok=True); B=os.environ.get('MARE_URL','http://127.0.0.1:8765/')
 get=lambda path: json.loads(urlopen(B+path).read())
 async def main():
     async with async_playwright() as p:
-        br=await p.chromium.launch(args=['--autoplay-policy=no-user-gesture-required'])
+        br=await launch(p, args=['--autoplay-policy=no-user-gesture-required'])
         errs=[]
-        ctx=await br.new_context(viewport={'width':390,'height':844},has_touch=True,is_mobile=True)
+        ctx=await br.new_context(**phone(p, 390, 844))
         pg=await ctx.new_page()
         pg.on('console', lambda m: m.type=='error' and 'TUNNEL' not in m.text and 'Failed to load resource' not in m.text and errs.append(m.text))
         pg.on('pageerror', lambda e: errs.append(f'PAGEERR: {e}'))
@@ -21,10 +22,7 @@ async def main():
         # Tap at 75% of the Now Playing bar (a tap, not a drag on the knob).
         await pg.click('.player .p-info, .player .p-title', force=True); await pg.wait_for_selector('.np .np-scrub'); await pg.wait_for_timeout(600)
         b=await pg.locator('.np .np-scrub').bounding_box()
-        c=await ctx.new_cdp_session(pg)
-        pt=[{'x':b['x']+b['width']*0.75,'y':b['y']+b['height']/2}]
-        await c.send('Input.dispatchTouchEvent',{'type':'touchStart','touchPoints':pt}); await pg.wait_for_timeout(80)
-        await c.send('Input.dispatchTouchEvent',{'type':'touchEnd','touchPoints':[]}); await pg.wait_for_timeout(600)
+        await tap(ctx, pg, b['x']+b['width']*0.75, b['y']+b['height']/2); await pg.wait_for_timeout(600)
         print('tap at 75%% → %.0f%%' % (await pg.evaluate("Player.pos()/Player.dur()*100")), '| scrubbing stuck:', await pg.evaluate("UI.scrubbing"))
         # A reload (headphone fix) keeps the position.
         await pg.evaluate("Player.seek(5)"); await pg.wait_for_timeout(300)

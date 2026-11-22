@@ -1,5 +1,6 @@
 import asyncio, sys, os, json, math
 from playwright.async_api import async_playwright
+from browser import launch, WEBKIT
 SP=sys.argv[1] if len(sys.argv)>1 else 'test-output'; os.makedirs(SP, exist_ok=True); B=os.environ.get('MARE_URL','http://127.0.0.1:8765/')
 async def drag(pg, src, dy):
     box=await src.bounding_box(); x=box['x']+box['width']/2; y=box['y']+box['height']/2
@@ -8,7 +9,7 @@ async def drag(pg, src, dy):
     await pg.wait_for_timeout(150); await pg.mouse.up(); await pg.wait_for_timeout(500)
 async def main():
     async with async_playwright() as p:
-        br=await p.chromium.launch(args=['--autoplay-policy=no-user-gesture-required'])
+        br=await launch(p, args=['--autoplay-policy=no-user-gesture-required'])
         errs=[]
         ctx=await br.new_context(viewport={'width':1400,'height':880})
         pg=await ctx.new_page()

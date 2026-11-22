@@ -2,11 +2,12 @@
 import asyncio, sys, os, json
 from urllib.request import urlopen
 from playwright.async_api import async_playwright
+from browser import launch, WEBKIT
 SP=sys.argv[1] if len(sys.argv)>1 else 'test-output'; os.makedirs(SP, exist_ok=True); B=os.environ.get('MARE_URL','http://127.0.0.1:8765/')
 sent=lambda: json.loads(urlopen(B+'__sent').read())
 async def main():
     async with async_playwright() as p:
-        br=await p.chromium.launch()
+        br=await launch(p)
         errs=[]
         ctx=await br.new_context(viewport={'width':1300,'height':860})
         pg=await ctx.new_page()

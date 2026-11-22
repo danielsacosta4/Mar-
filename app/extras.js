@@ -302,7 +302,9 @@ const Offline = {
     else { this.jobs.delete(key); return; }
     if (!songs.length) { this.jobs.delete(key); this.paint(key); return; }
     toast(`Downloading ${name} · ${songs.length} song${songs.length === 1 ? '' : 's'}. You can keep browsing.`);
-    try { await navigator.storage?.persist?.(); } catch { /* ignore */ }
+    // Ask to keep the storage, but don't wait for the answer: Firefox shows a question for it, and until it was
+    // answered the download sat on "Starting…".
+    try { navigator.storage?.persist?.().catch(() => {}); } catch { /* ignore */ }
     const job = { done: 0, total: songs.length, bytes: 0 };
     this.jobs.set(key, job);
     this.paint(key);
@@ -321,7 +323,7 @@ const Offline = {
         const s = songs[i++];
         if (!(await audio.match(`/offline/song/${s.id}`))) {
           try {
-            const r = await fetch(API.stream(s.id, dq ? { format: dq.format, maxBitRate: dq.kbps, estimateContentLength: true } : null));
+            const r = await fetch(API.stream(s.id, dq ? { format: dq.format, maxBitRate: dq.kbps } : null));
             if (!r.ok) throw new Error(r.status);
             const blob = await r.blob();
             job.bytes += blob.size;
@@ -777,7 +779,7 @@ const Ahead = {
         if (d.songs[s.id] || await cache.match(this.key(s.id))) continue;
         if (!this.on() || Offline.offline) break;
         const q = this.spec();
-        const r = await fetch(API.stream(s.id, q ? { format: q.format, maxBitRate: q.kbps, estimateContentLength: true } : null));
+        const r = await fetch(API.stream(s.id, q ? { format: q.format, maxBitRate: q.kbps } : null));
         if (!r.ok) continue;
         const blob = await r.blob();
         await cache.put(this.key(s.id), new Response(blob, { headers: { 'Content-Type': r.headers.get('Content-Type') || 'audio/mpeg', 'Content-Length': blob.size } }));

@@ -369,7 +369,8 @@ const Offline = {
     }
     toast("Downloading ".concat(name, " \xB7 ").concat(songs.length, " song").concat(songs.length === 1 ? "" : "s", ". You can keep browsing."));
     try {
-      await ((_b = (_a = navigator.storage) == null ? void 0 : _a.persist) == null ? void 0 : _b.call(_a));
+      (_b = (_a = navigator.storage) == null ? void 0 : _a.persist) == null ? void 0 : _b.call(_a).catch(() => {
+      });
     } catch {
     }
     const job = { done: 0, total: songs.length, bytes: 0 };
@@ -394,7 +395,7 @@ const Offline = {
         const s = songs[i++];
         if (!await audio.match("/offline/song/".concat(s.id))) {
           try {
-            const r = await fetch(API.stream(s.id, dq ? { format: dq.format, maxBitRate: dq.kbps, estimateContentLength: true } : null));
+            const r = await fetch(API.stream(s.id, dq ? { format: dq.format, maxBitRate: dq.kbps } : null));
             if (!r.ok) throw new Error(r.status);
             const blob = await r.blob();
             job.bytes += blob.size;
@@ -892,7 +893,7 @@ const Ahead = {
         if (d.songs[s.id] || await cache.match(this.key(s.id))) continue;
         if (!this.on() || Offline.offline) break;
         const q = this.spec();
-        const r = await fetch(API.stream(s.id, q ? { format: q.format, maxBitRate: q.kbps, estimateContentLength: true } : null));
+        const r = await fetch(API.stream(s.id, q ? { format: q.format, maxBitRate: q.kbps } : null));
         if (!r.ok) continue;
         const blob = await r.blob();
         await cache.put(this.key(s.id), new Response(blob, { headers: { "Content-Type": r.headers.get("Content-Type") || "audio/mpeg", "Content-Length": blob.size } }));

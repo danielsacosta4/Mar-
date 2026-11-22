@@ -4,6 +4,7 @@
 import asyncio, sys, os, json, time
 from urllib.request import urlopen
 from playwright.async_api import async_playwright
+from browser import launch, tap, slow_cpu, phone, WEBKIT
 SP=sys.argv[1] if len(sys.argv)>1 else 'test-output'; os.makedirs(SP, exist_ok=True); B=os.environ.get('MARE_URL','http://127.0.0.1:8765/')
 get=lambda path: json.loads(urlopen(B+path).read())
 INIT="""
@@ -15,9 +16,9 @@ async def main():
     get('__real?1')
     problems=[]
     async with async_playwright() as p:
-        br=await p.chromium.launch(args=['--autoplay-policy=no-user-gesture-required'])
+        br=await launch(p, args=['--autoplay-policy=no-user-gesture-required'])
         errs=[]
-        ctx=await br.new_context(viewport={'width':390,'height':844},has_touch=True,is_mobile=True)
+        ctx=await br.new_context(**phone(p, 390, 844))
         await ctx.add_init_script(INIT)
         pg=await ctx.new_page()
         pg.on('console', lambda m: m.type=='error' and 'Failed to load resource' not in m.text and errs.append(m.text))
@@ -27,8 +28,7 @@ async def main():
         await pg.wait_for_selector('.sheet'); await pg.click('[data-close]'); await pg.wait_for_selector('.shelf .card')
         await pg.evaluate("Prefs.set('quality','opus128')")
         await pg.reload(); await pg.wait_for_selector('.shelf .card'); await pg.wait_for_timeout(1000)
-        cdp=await ctx.new_cdp_session(pg)
-        await cdp.send('Emulation.setCPUThrottlingRate',{'rate':4})
+        print('slow processor:', await slow_cpu(ctx, pg, 4))
         print('iPhone mode:', await pg.evaluate("Player.volLocked"), '| service worker:', await pg.evaluate("!!navigator.serviceWorker.controller"))
         await pg.evaluate("window.__lt.length=0")
         t0=time.time()
@@ -42,8 +42,8 @@ async def main():
             const t=Player.pos(); if(!a.paused && Math.abs(t-w.last)<0.05){ if(++w.same===6) w.stops++; } else w.same=0; w.last=t;},500)""")
         async def touch_seek(f):
             await pg.click('.player .p-title', force=True); await pg.wait_for_selector('.np .np-scrub'); await pg.wait_for_timeout(400)
-            b=await pg.locator('.np .np-scrub').bounding_box(); pt=[{'x':b['x']+b['width']*f,'y':b['y']+b['height']/2}]
-            await cdp.send('Input.dispatchTouchEvent',{'type':'touchStart','touchPoints':pt}); await cdp.send('Input.dispatchTouchEvent',{'type':'touchEnd','touchPoints':[]})
+            b=await pg.locator('.np .np-scrub').bounding_box()
+            await tap(ctx, pg, b['x']+b['width']*f, b['y']+b['height']/2)
             await pg.wait_for_timeout(500); await pg.keyboard.press('Escape'); await pg.evaluate("UI.closeNP?.()")
         steps=[]
         await pg.wait_for_timeout(8000); steps.append(('played 8 s', await pg.evaluate("Player.pos()")))
@@ -66,8 +66,9 @@ async def main():
         streams=[x for x in get('__log') if x.startswith('stream so2')]
         for s in steps: print('step:', s)
         print('watch:', w, '| long tasks >100 ms:', len([x for x in lt if x>100]), '| longest: %s ms' % (max(lt) if lt else 0), '| localStorage: %d KB' % (ls//1024))
-        print('streams all with size estimate:', all(x.endswith(' est') for x in streams if ' opus' in x or ' mp3' in x), '|', streams[:3])
+        print('no stream asks for a size estimate:', not any(x.endswith(' est') for x in streams), '|', streams[-3:])
         print('log:', log[:14])
+        if any(x.endswith(' est') for x in streams): problems.append('a stream asked Navidrome for a size estimate (wrong sizes, see 1.6.2)')
         if w['stops']: problems.append(f"{w['stops']} unexpected stop(s)")
         if any('skipped after error' in x for x in log): problems.append('a song was skipped after an error')
         if not steps[-1][1][0] or not steps[-1][1][1]: problems.append('did not recover when the server came back')
