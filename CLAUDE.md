@@ -337,6 +337,8 @@ uses `LANG=C.UTF-8` to avoid locale noise.
   server switched OFF mid-album and three songs still play, saving resumes when it is back; passes in WebKit, Chromium and
   Firefox (Firefox's timing not counted). Not testable here: a locked iPhone, AirPods. Agreed acceptance on the owner's
   phone: 20 songs in a row locked without a stop; if still bad after a week of use, stop work on the iPhone version.
+  **Result (owner, four days later, on the real iPhone): "1.7.0 has been working great". The iPhone version stays.**
+  AirPods with the phone locked hasn't been tried on 1.7.0 yet.
 - **1.8.0** "Maré updates itself": the owner can't have Claude run the update command (no route from a cloud session to
   their network), so the container updates itself. The host command now also installs `/usr/local/bin/mare-update` +
   `mare-update.service` / `.timer` (hourly, 2 min after boot). The bootstrap reads `/etc/mare.conf`, compares the
