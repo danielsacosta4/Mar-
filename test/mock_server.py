@@ -243,7 +243,15 @@ def mb(s,u):
     p=u.path[4:]; q={k:v[0] for k,v in parse_qs(u.query).items()}; log.append('MB '+p+' '+u.query)
     if p=='artist':
         name=q['query'].split('"')[1]
-        return s.send_json({"artists":[{"id":"mb-"+a[0],"name":a[1],"score":100} for a in artists if a[1]==name]})
+        # Countries the way MusicBrainz gives them: most artists carry one; ar4 is a person filed under a city (the
+        # country is found by walking up its areas); ar5 isn't on MusicBrainz at all; ar2 has a namesake elsewhere.
+        geo={"ar1":{"country":"PT"},"ar2":{"country":"NO"},"ar3":{"country":"PT"},"ar4":{"begin-area":{"id":"area-city","name":"Chicago","type":"City"}}}
+        out=[{"id":"mb-"+a[0],"name":a[1],"score":100,**geo.get(a[0],{})} for a in artists if a[1]==name and a[0]!="ar5"]
+        if name=="The Northern Lights": out.append({"id":"mb-other","name":"The Northern Lights","score":72,"country":"GB"})
+        if not out: out=[{"id":"mb-wrong","name":name+" Tribute Band","score":100,"country":"DE"}]   # the top hit always scores 100
+        return s.send_json({"artists":out})
+    if p=='area/area-city': return s.send_json({"id":"area-city","name":"Chicago","relations":[{"type":"part of","direction":"forward","area":{"id":"area-district","name":"Austin"}},{"type":"part of","direction":"backward","area":{"id":"area-county","name":"Cook County"}}]})
+    if p=='area/area-county': return s.send_json({"id":"area-county","name":"Cook County","relations":[{"type":"part of","direction":"backward","area":{"id":"area-state","name":"Illinois","iso-3166-2-codes":["US-IL"]}}]})
     if p=='release-group':
         aid=q['artist'][3:]; own=[a for a in albums if a['artistId']==aid]
         rgs=[{"id":"rg-"+a['id'],"title":a['name']+(" (Deluxe Edition)" if i==0 else ""),"primary-type":"Album","secondary-types":[],"first-release-date":str(a['year'])} for i,a in enumerate(own)]

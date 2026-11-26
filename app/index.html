@@ -16,7 +16,7 @@
   <script>
     // Old iPhones (iOS 12, e.g. iPhone 6) can't read the app's newer code: they get the older-style copy in legacy/,
     // which build/build.sh writes. Written in old-style JavaScript on purpose. ?v= keeps proxies from serving old files.
-    var MARE_V = '1.8.0', MARE_DIR = '';
+    var MARE_V = '1.8.1', MARE_DIR = '';
     try { if (localStorage.getItem('mare.forceLegacy')) throw 0; new Function('var a; return a?.b ?? (a ||= 1)'); } catch (e) { MARE_DIR = 'legacy/'; }
     document.write('<link rel="stylesheet" href="' + MARE_DIR + 'app.css?v=' + MARE_V + '">');
   </script>
@@ -87,6 +87,7 @@
         <span class="ico vol-ico" data-icon="volume"></span>
         <input type="range" class="volume" min="0" max="100" value="100" aria-label="Volume">
       </div>
+      <button class="icon-btn p-mini-more np-more" data-act="menu-current" aria-label="More"></button>
       <button class="icon-btn p-mini-toggle" data-act="toggle" aria-label="Play"></button>
       <button class="icon-btn p-mini-next" data-act="next" aria-label="Next"></button>
       <div class="p-mini-progress"><span></span></div>
@@ -123,6 +124,7 @@
             <a class="np-artist" href="#"></a>
           </div>
           <button class="icon-btn np-heart" data-act="star-current" aria-label="Favorite"></button>
+          <button class="icon-btn np-more np-more-big" data-act="menu-current" aria-label="More"></button>
         </div>
         <input type="range" class="scrubber np-scrub" min="0" max="1000" value="0" aria-label="Seek">
         <div class="np-times"><span class="p-cur">0:00</span><button class="np-quality qbadge" data-act="quality-info" hidden></button><span class="p-dur">0:00</span></div>
@@ -146,7 +148,7 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <script>
-    (MARE_DIR ? ['legacy-polyfills.js'] : []).concat(['app', 'discover', 'extras', 'collection', 'shopping', 'timemachine', 'moments'].map(function (n) { return MARE_DIR + n + '.js'; }))
+    (MARE_DIR ? ['legacy-polyfills.js'] : []).concat(['app', 'discover', 'extras', 'collection', 'shopping', 'timemachine', 'moments', 'atlas'].map(function (n) { return MARE_DIR + n + '.js'; }))
       .forEach(function (f) { document.write('<script src="' + f + '?v=' + MARE_V + '"><\/script>'); });
   </script>
 </body>

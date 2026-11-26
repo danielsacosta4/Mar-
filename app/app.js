@@ -1,6 +1,6 @@
 /* Maré — a Navidrome (Subsonic / OpenSubsonic) web client. */
 'use strict';
-window.MARE_VERSION = '1.8.0';
+window.MARE_VERSION = '1.8.1';
 
 /* ================= Utilities ================= */
 
@@ -23,6 +23,38 @@ const shuffleArr = (arr) => {
   const a = arr.slice();
   for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
   return a;
+};
+// Reorder so the same artist doesn't play twice in a row whenever that is possible (keeps the given order otherwise).
+// Taking simply "the next different artist" leaves a clump of one artist at the end, so an artist who still has more
+// than half of what is left goes first.
+const spread = (songs) => {
+  const pool = songs.slice(), out = [], left = new Map();
+  pool.forEach((s) => left.set(s.artist, (left.get(s.artist) || 0) + 1));
+  while (pool.length) {
+    const last = out[out.length - 1]?.artist;
+    let most = null;
+    left.forEach((n, a) => { if (a !== last && (most === null || n > left.get(most))) most = a; });
+    let i = most !== null && left.get(most) * 2 > pool.length ? pool.findIndex((s) => s.artist === most) : pool.findIndex((s) => s.artist !== last);
+    if (i < 0) i = 0;
+    const s = pool.splice(i, 1)[0];
+    left.set(s.artist, left.get(s.artist) - 1);
+    out.push(s);
+  }
+  return out;
+};
+// A fair shuffle, then artists kept apart: what every "shuffle" in Maré uses.
+const shuffled = (songs) => spread(shuffleArr(songs));
+// Pick n songs at random, leaning towards what hasn't been heard lately (never played counts most). Weighted
+// sampling without replacement: each song draws random^(1/weight) and the highest draws win.
+const favourUnheard = (songs, n) => {
+  const now = Date.now(), DAY = 864e5;
+  const weight = (s) => {
+    const t = s.played ? Date.parse(s.played) : 0;
+    if (!t) return 4;
+    const days = (now - t) / DAY;
+    return days > 180 ? 3 : days > 30 ? 2 : days > 7 ? 1 : days > 1 ? 0.25 : 0.1;
+  };
+  return songs.map((s) => ({ s, k: Math.random() ** (1 / weight(s)) })).sort((a, b) => b.k - a.k).slice(0, n).map((x) => x.s);
 };
 const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
 
@@ -640,13 +672,13 @@ const Player = {
     if (shuffle) {
       this.shuffle = true;
       this.order = songs.slice();
-      this.queue = shuffleArr(songs);
+      this.queue = shuffled(songs);
       this.index = 0;
     } else if (this.shuffle && shuffle !== false) {
       // Keep shuffle on: start with the chosen song, shuffle the rest.
       this.order = songs.slice();
       const first = songs[start];
-      this.queue = [first, ...shuffleArr(songs.filter((_, i) => i !== start))];
+      this.queue = spread([first, ...shuffleArr(songs.filter((_, i) => i !== start))]);
       this.index = 0;
     } else {
       this.shuffle = false;
@@ -898,7 +930,7 @@ const Player = {
       this.shuffle = true;
       this.order = this.queue.slice();
       const rest = this.queue.filter((_, i) => i !== this.index);
-      this.queue = cur ? [cur, ...shuffleArr(rest)] : shuffleArr(rest);
+      this.queue = cur ? spread([cur, ...shuffleArr(rest)]) : shuffled(rest);
       this.index = cur ? 0 : -1;
     } else {
       this.shuffle = false;
@@ -1143,7 +1175,7 @@ View.home = async (main) => {
 
   const pick4 = (arr) => shuffleArr(arr.filter((a) => a.coverArt)).slice(0, 4);
   const mixDefs = [
-    { key: 'mix-library', title: 'Shuffle your library', sub: 'A random hundred from everything you own', covers: pick4(random.length ? random : newest) },
+    { key: 'mix-library', title: 'Shuffle your library', sub: 'Never ends, and leans towards what you haven\'t heard lately', covers: pick4(random.length ? random : newest) },
     { key: 'mix-favorites', title: 'Your Favorites', sub: 'Songs you\'ve hearted, shuffled', covers: pick4(starred.length ? starred : frequent) },
     { key: 'mix-new', title: 'Fresh in the library', sub: 'The latest albums you\'ve added', covers: pick4(newest) },
   ];
@@ -1788,7 +1820,12 @@ const actions = {
   'play-artist': async (el) => { toast('Starting artist shuffle…'); Player.playList(await artistSongs(el.dataset.id), 0, { shuffle: true }); },
   'play-playlist': async (el) => { Player.playList(await playlistSongs(el.dataset.id), 0, { shuffle: false }); },
   'shuffle-playlist': async (el) => { Player.playList(await playlistSongs(el.dataset.id), 0, { shuffle: true }); },
-  'mix-library': async () => { Player.playList(await randomSongs(), 0, { shuffle: true }); },
+  // Endless: a "radio" of the whole library that keeps refilling, skips what this session already played, keeps
+  // artists apart and leans towards songs not heard lately (see Radio kind "library" in discover.js).
+  'mix-library': async () => {
+    if (window.Radio) return window.Radio.start('library');
+    Player.playList(await randomSongs(), 0, { shuffle: true });
+  },
   'mix-favorites': async () => {
     const r = await API.call('getStarred2');
     const songs = r.starred2?.song || [];

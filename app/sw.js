@@ -1,5 +1,5 @@
 /* Maré service worker: keeps the app usable offline and plays downloaded songs. */
-const VERSION = '1.8.0';
+const VERSION = '1.8.1';
 const SHELL = 'mare-shell-' + VERSION;
 const AUDIO = 'mare-audio';
 const ART = 'mare-art';
@@ -10,9 +10,9 @@ const MAX_COVERS = 1500;
 // Library reads worth showing from memory. Anything that changes data clears them (see CHANGES).
 const PAGE_CALLS = new Set(['getAlbumList2', 'getAlbum', 'getArtists', 'getArtist', 'getArtistInfo2', 'getAlbumInfo2', 'getPlaylists', 'getPlaylist', 'getGenres', 'getStarred2', 'getTopSongs']);
 const CHANGES = /^(create|update|delete)Playlist$|^(star|unstar|setRating|startScan)$/;
-const SHELL_FILES = ['./', 'index.html', 'app.css', 'app.js', 'discover.js', 'extras.js', 'collection.js', 'shopping.js', 'timemachine.js', 'moments.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png',
+const SHELL_FILES = ['./', 'index.html', 'app.css', 'app.js', 'discover.js', 'extras.js', 'collection.js', 'shopping.js', 'timemachine.js', 'moments.js', 'atlas.js', 'globe-lib.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png',
   // The older-style copy for iOS 12 (see index.html); cached too, so the old phone also starts offline.
-  'legacy-polyfills.js', 'legacy/app.css', ...['app', 'discover', 'extras', 'collection', 'shopping', 'timemachine', 'moments'].map((n) => `legacy/${n}.js`)];
+  'legacy-polyfills.js', 'legacy/app.css', ...['app', 'discover', 'extras', 'collection', 'shopping', 'timemachine', 'moments', 'atlas'].map((n) => `legacy/${n}.js`)];
 // Fonts are fetched by the installer; if they're missing the app falls back to system fonts, so don't fail on them.
 const FONT_FILES = ['fonts/archivo.woff2', 'fonts/newsreader.woff2', 'fonts/newsreader-italic.woff2'];
 

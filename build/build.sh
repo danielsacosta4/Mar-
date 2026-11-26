@@ -17,12 +17,12 @@ stale=$(grep -v "?v=$VER\"" <<<"$refs" || true)
 # index.html loads on such phones. Commit it: the installer only downloads the repository.
 rm -rf app/legacy; mkdir -p app/legacy
 ESB=(npx --yes esbuild@0.24.0)
-for f in app.js discover.js extras.js collection.js shopping.js timemachine.js moments.js; do
+for f in app.js discover.js extras.js collection.js shopping.js timemachine.js moments.js atlas.js; do
   "${ESB[@]}" "app/$f" --target=safari12 --log-level=warning --legal-comments=inline --outfile="app/legacy/$f"
 done
 "${ESB[@]}" app/app.css --target=safari12 --log-level=warning --outfile=app/legacy/app.css
 python3 build/legacy.py app/legacy/app.css
-for f in app/legacy/*.js app/legacy-polyfills.js app/sw.js; do
+for f in app/legacy/*.js app/legacy-polyfills.js app/sw.js app/globe-lib.js; do
   npx --yes acorn@8.14.0 --ecma2019 --silent "$f" || { echo "$f still has syntax iOS 12 can't read" >&2; exit 1; }
 done
 grep -q 'cqw\|clamp(\|aspect-ratio: 1;$' app/legacy/app.css && grep -n 'cqw\|clamp(' app/legacy/app.css | head -3 | sed 's/^/note (legacy css, has a stand-in): /' >&2 || true
