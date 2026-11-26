@@ -1,5 +1,5 @@
 "use strict";
-window.MARE_VERSION = "1.8.0";
+window.MARE_VERSION = "1.8.1";
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 const esc = (s) => String(s != null ? s : "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -22,6 +22,35 @@ const shuffleArr = (arr) => {
     [a[i], a[j]] = [a[j], a[i]];
   }
   return a;
+};
+const spread = (songs) => {
+  var _a;
+  const pool = songs.slice(), out = [], left = /* @__PURE__ */ new Map();
+  pool.forEach((s) => left.set(s.artist, (left.get(s.artist) || 0) + 1));
+  while (pool.length) {
+    const last = (_a = out[out.length - 1]) == null ? void 0 : _a.artist;
+    let most = null;
+    left.forEach((n, a) => {
+      if (a !== last && (most === null || n > left.get(most))) most = a;
+    });
+    let i = most !== null && left.get(most) * 2 > pool.length ? pool.findIndex((s2) => s2.artist === most) : pool.findIndex((s2) => s2.artist !== last);
+    if (i < 0) i = 0;
+    const s = pool.splice(i, 1)[0];
+    left.set(s.artist, left.get(s.artist) - 1);
+    out.push(s);
+  }
+  return out;
+};
+const shuffled = (songs) => spread(shuffleArr(songs));
+const favourUnheard = (songs, n) => {
+  const now = Date.now(), DAY = 864e5;
+  const weight = (s) => {
+    const t = s.played ? Date.parse(s.played) : 0;
+    if (!t) return 4;
+    const days = (now - t) / DAY;
+    return days > 180 ? 3 : days > 30 ? 2 : days > 7 ? 1 : days > 1 ? 0.25 : 0.1;
+  };
+  return songs.map((s) => ({ s, k: Math.random() ** (1 / weight(s)) })).sort((a, b) => b.k - a.k).slice(0, n).map((x) => x.s);
 };
 const debounce = (fn, ms) => {
   let t;
@@ -831,12 +860,12 @@ const Player = {
     if (shuffle) {
       this.shuffle = true;
       this.order = songs.slice();
-      this.queue = shuffleArr(songs);
+      this.queue = shuffled(songs);
       this.index = 0;
     } else if (this.shuffle && shuffle !== false) {
       this.order = songs.slice();
       const first = songs[start2];
-      this.queue = [first, ...shuffleArr(songs.filter((_, i) => i !== start2))];
+      this.queue = spread([first, ...shuffleArr(songs.filter((_, i) => i !== start2))]);
       this.index = 0;
     } else {
       this.shuffle = false;
@@ -1163,7 +1192,7 @@ const Player = {
       this.shuffle = true;
       this.order = this.queue.slice();
       const rest = this.queue.filter((_, i) => i !== this.index);
-      this.queue = cur ? [cur, ...shuffleArr(rest)] : shuffleArr(rest);
+      this.queue = cur ? spread([cur, ...shuffleArr(rest)]) : shuffled(rest);
       this.index = cur ? 0 : -1;
     } else {
       this.shuffle = false;
@@ -1462,7 +1491,7 @@ View.home = async (main) => {
   const rediscover = shuffleArr(frequent.filter((a) => !recentIds.has(a.id))).slice(0, 18);
   const pick4 = (arr) => shuffleArr(arr.filter((a) => a.coverArt)).slice(0, 4);
   const mixDefs = [
-    { key: "mix-library", title: "Shuffle your library", sub: "A random hundred from everything you own", covers: pick4(random.length ? random : newest) },
+    { key: "mix-library", title: "Shuffle your library", sub: "Never ends, and leans towards what you haven't heard lately", covers: pick4(random.length ? random : newest) },
     { key: "mix-favorites", title: "Your Favorites", sub: "Songs you've hearted, shuffled", covers: pick4(starred.length ? starred : frequent) },
     { key: "mix-new", title: "Fresh in the library", sub: "The latest albums you've added", covers: pick4(newest) }
   ];
@@ -2078,7 +2107,10 @@ const actions = {
   "shuffle-playlist": async (el) => {
     Player.playList(await playlistSongs(el.dataset.id), 0, { shuffle: true });
   },
+  // Endless: a "radio" of the whole library that keeps refilling, skips what this session already played, keeps
+  // artists apart and leans towards songs not heard lately (see Radio kind "library" in discover.js).
   "mix-library": async () => {
+    if (window.Radio) return window.Radio.start("library");
     Player.playList(await randomSongs(), 0, { shuffle: true });
   },
   "mix-favorites": async () => {

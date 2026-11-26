@@ -9,11 +9,13 @@ const MB = {
   },
   chain: Promise.resolve(),
   last: 0,
+  gap: 1100,
+  // ms between requests (their limit is one a second); tests shorten it
   get(path, params = {}) {
     const url = "".concat(this.base(), "/").concat(path, "?").concat(new URLSearchParams({ ...params, fmt: "json" }));
     const run = this.chain.then(async () => {
       for (let attempt = 0; attempt < 3; attempt++) {
-        const wait = this.last + 1100 - Date.now();
+        const wait = this.last + this.gap - Date.now();
         if (wait > 0) await sleep(wait);
         this.last = Date.now();
         let res;

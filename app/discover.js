@@ -166,17 +166,7 @@ const Match = {
 
 /* ================= Radio ================= */
 
-// Spread songs so the same artist doesn't play twice in a row when avoidable.
-function spread(songs) {
-  const pool = songs.slice(), out = [];
-  while (pool.length) {
-    const last = out[out.length - 1]?.artist;
-    let i = pool.findIndex((s) => s.artist !== last);
-    if (i < 0) i = 0;
-    out.push(pool.splice(i, 1)[0]);
-  }
-  return out;
-}
+// spread() (same artist never twice in a row when avoidable) lives in app.js, where every shuffle uses it.
 
 const similarSongs = async (id, count = 40) => {
   const r = await API.call('getSimilarSongs2', { id, count }).catch(() => null);
@@ -193,6 +183,7 @@ const Radio = {
     const labels = {
       song: () => `${seed.title} Radio`, artist: () => `${seed.name} Radio`, album: () => `${seed.name} Radio`,
       genre: () => `${seed} Radio`, decade: () => `${seed}s Radio`, station: () => 'Your Station', lbradio: () => 'Recommended Radio',
+      library: () => 'Library Shuffle',
     };
     const state = { kind, seed, label: labels[kind](), seen: new Set(), busy: false, round: 0 };
     toast(`Starting ${state.label}…`);
@@ -247,6 +238,8 @@ const Radio = {
       if (out.length < 5) out = out.concat(await this.fallback(null, seed));
       return spread(out);
     }
+    // The whole library: a big random handful from Navidrome, then the ones not heard lately are preferred.
+    if (kind === 'library') return spread(favourUnheard(await randomSongs({ size: 300 }), first ? 100 : 60));
     if (kind === 'genre') return spread(await randomSongs({ genre: seed, size: 40 }));
     if (kind === 'decade') return spread(await randomSongs({ fromYear: seed, toYear: seed + 9, size: 40 }));
     if (kind === 'station') {

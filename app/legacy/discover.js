@@ -172,17 +172,6 @@ const Match = {
     return null;
   }
 };
-function spread(songs) {
-  var _a;
-  const pool = songs.slice(), out = [];
-  while (pool.length) {
-    const last = (_a = out[out.length - 1]) == null ? void 0 : _a.artist;
-    let i = pool.findIndex((s) => s.artist !== last);
-    if (i < 0) i = 0;
-    out.push(pool.splice(i, 1)[0]);
-  }
-  return out;
-}
 const similarSongs = async (id, count = 40) => {
   var _a;
   const r = await API.call("getSimilarSongs2", { id, count }).catch(() => null);
@@ -205,7 +194,8 @@ const Radio = {
       genre: () => "".concat(seed, " Radio"),
       decade: () => "".concat(seed, "s Radio"),
       station: () => "Your Station",
-      lbradio: () => "Recommended Radio"
+      lbradio: () => "Recommended Radio",
+      library: () => "Library Shuffle"
     };
     const state = { kind, seed, label: labels[kind](), seen: /* @__PURE__ */ new Set(), busy: false, round: 0 };
     toast("Starting ".concat(state.label, "\u2026"));
@@ -267,6 +257,7 @@ const Radio = {
       if (out.length < 5) out = out.concat(await this.fallback(null, seed));
       return spread(out);
     }
+    if (kind === "library") return spread(favourUnheard(await randomSongs({ size: 300 }), first ? 100 : 60));
     if (kind === "genre") return spread(await randomSongs({ genre: seed, size: 40 }));
     if (kind === "decade") return spread(await randomSongs({ fromYear: seed, toYear: seed + 9, size: 40 }));
     if (kind === "station") {

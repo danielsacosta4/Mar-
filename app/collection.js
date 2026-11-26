@@ -217,7 +217,12 @@ Object.assign(actions, {
   // eslint-disable-next-line no-func-assign
   songMenu = function (anchor, s) {
     prev(anchor, s);
-    $('#menu').insertAdjacentHTML('afterbegin', `<div class="menu-stars">${Rating.stars(s.userRating || 0, `data-kind="song" data-id="${esc(s.id)}"`)}</div><hr>`);
+    const m = $('#menu'), before = m.offsetHeight;
+    m.insertAdjacentHTML('afterbegin', `<div class="menu-stars">${Rating.stars(s.userRating || 0, `data-kind="song" data-id="${esc(s.id)}"`)}</div><hr>`);
+    // The stars make the menu taller: when it opened upwards (from the player at the bottom) or now reaches past
+    // the screen, lift it by that much so it doesn't cover what was tapped.
+    const r = anchor?.getBoundingClientRect?.(), top = parseFloat(m.style.top) || 0, grew = m.offsetHeight - before;
+    if (r && grew > 0 && (top < r.top || top + m.offsetHeight > innerHeight - 8)) m.style.top = Math.max(8, top - grew) + 'px';
   };
 }
 
@@ -394,11 +399,13 @@ View.collection = async (main, params, filter) => {
         <a class="tile${untagged ? ' warn' : ''}" href="#/collection/untagged"><span class="label">Volume tags</span><b>${untagged ? untagged.toLocaleString() : 'All'}</b><span>${untagged ? `albums missing them (${pct(untagged)})` : 'every album is tagged'}</span></a>
       </div>
       ${Growth.html(all)}
+      <div id="coll-atlas"></div>
       ${section('By resolution', `<div class="res-bars">${per.map(([k, l, v]) => `<a class="res-row" href="#/collection/${k}">
           <span class="res-label">${esc(l)}</span><span class="res-bar"><i style="width:${(v / max) * 100}%"></i></span><span class="res-n">${v.toLocaleString()}</span></a>`).join('')}</div>`)}
       <p class="coll-foot">${all.length.toLocaleString()} albums · ${d.songs.toLocaleString()} songs${bytes ? ` · ${fmtSize(bytes)}` : ''} · read ${esc(new Date(d.at).toLocaleDateString(undefined, { day: 'numeric', month: 'long' }))}
         <button class="btn btn-link" data-act="coll-reread">Read again</button></p>
       <div id="coll-rated"></div>`;
+    window.Atlas?.mount($('#coll-atlas'));   // the globe (atlas.js)
     const top = (d.rated || []).filter((s) => s.userRating >= 4).sort((x, y) => y.userRating - x.userRating).slice(0, 20);
     if (top.length) {
       $('#coll-rated').innerHTML = `<section class="section"><div class="section-head"><h2>Your Top Rated Songs</h2><a href="#" data-act="mix-top">Play your 5-star songs</a></div>${trackRows(register(top), { art: true, numbers: 'index' })}</section>`;

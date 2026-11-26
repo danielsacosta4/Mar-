@@ -255,8 +255,12 @@ Object.assign(actions, {
 {
   const prev = songMenu;
   songMenu = function(anchor, s) {
+    var _a;
     prev(anchor, s);
-    $("#menu").insertAdjacentHTML("afterbegin", '<div class="menu-stars">'.concat(Rating.stars(s.userRating || 0, 'data-kind="song" data-id="'.concat(esc(s.id), '"')), "</div><hr>"));
+    const m = $("#menu"), before = m.offsetHeight;
+    m.insertAdjacentHTML("afterbegin", '<div class="menu-stars">'.concat(Rating.stars(s.userRating || 0, 'data-kind="song" data-id="'.concat(esc(s.id), '"')), "</div><hr>"));
+    const r = (_a = anchor == null ? void 0 : anchor.getBoundingClientRect) == null ? void 0 : _a.call(anchor), top = parseFloat(m.style.top) || 0, grew = m.offsetHeight - before;
+    if (r && grew > 0 && (top < r.top || top + m.offsetHeight > innerHeight - 8)) m.style.top = Math.max(8, top - grew) + "px";
   };
 }
 {
@@ -412,6 +416,7 @@ const FILTERS = {
 };
 View.collection = async (main, params, filter) => {
   const draw = () => {
+    var _a;
     if (UI.route.name !== "collection") return;
     const d = Catalog.load();
     const p = Catalog.progress;
@@ -434,7 +439,8 @@ View.collection = async (main, params, filter) => {
     const per = BUCKETS.map(([k, l]) => [k, l, all.filter((a) => Catalog.bucket(a) === k).length]);
     const max = Math.max(1, ...per.map((x) => x[2]));
     const pct = (v) => "".concat(Math.round(v / n * 100), "%");
-    main.innerHTML = '<h1 class="page-title">Collection</h1>\n      '.concat(reading, '\n      <div class="tiles">\n        <a class="tile" href="#/collection/hires"><span class="label">Hi-res albums</span><b>').concat(hires.toLocaleString(), "</b><span>").concat(pct(hires), ' of your albums</span></a>\n        <a class="tile" href="#/collection/cd"><span class="label">CD quality</span><b>').concat(cd.toLocaleString(), "</b><span>").concat(pct(cd), '</span></a>\n        <a class="tile" href="#/collection/lossy"><span class="label">Lossy files</span><b>').concat(lossy.toLocaleString(), "</b><span>").concat(lossy ? "albums with MP3, AAC or similar" : "none, all lossless", '</span></a>\n        <a class="tile').concat(untagged ? " warn" : "", '" href="#/collection/untagged"><span class="label">Volume tags</span><b>').concat(untagged ? untagged.toLocaleString() : "All", "</b><span>").concat(untagged ? "albums missing them (".concat(pct(untagged), ")") : "every album is tagged", "</span></a>\n      </div>\n      ").concat(Growth.html(all), "\n      ").concat(section("By resolution", '<div class="res-bars">'.concat(per.map(([k, l, v]) => '<a class="res-row" href="#/collection/'.concat(k, '">\n          <span class="res-label">').concat(esc(l), '</span><span class="res-bar"><i style="width:').concat(v / max * 100, '%"></i></span><span class="res-n">').concat(v.toLocaleString(), "</span></a>")).join(""), "</div>")), '\n      <p class="coll-foot">').concat(all.length.toLocaleString(), " albums \xB7 ").concat(d.songs.toLocaleString(), " songs").concat(bytes ? " \xB7 ".concat(fmtSize(bytes)) : "", " \xB7 read ").concat(esc(new Date(d.at).toLocaleDateString(void 0, { day: "numeric", month: "long" })), '\n        <button class="btn btn-link" data-act="coll-reread">Read again</button></p>\n      <div id="coll-rated"></div>');
+    main.innerHTML = '<h1 class="page-title">Collection</h1>\n      '.concat(reading, '\n      <div class="tiles">\n        <a class="tile" href="#/collection/hires"><span class="label">Hi-res albums</span><b>').concat(hires.toLocaleString(), "</b><span>").concat(pct(hires), ' of your albums</span></a>\n        <a class="tile" href="#/collection/cd"><span class="label">CD quality</span><b>').concat(cd.toLocaleString(), "</b><span>").concat(pct(cd), '</span></a>\n        <a class="tile" href="#/collection/lossy"><span class="label">Lossy files</span><b>').concat(lossy.toLocaleString(), "</b><span>").concat(lossy ? "albums with MP3, AAC or similar" : "none, all lossless", '</span></a>\n        <a class="tile').concat(untagged ? " warn" : "", '" href="#/collection/untagged"><span class="label">Volume tags</span><b>').concat(untagged ? untagged.toLocaleString() : "All", "</b><span>").concat(untagged ? "albums missing them (".concat(pct(untagged), ")") : "every album is tagged", "</span></a>\n      </div>\n      ").concat(Growth.html(all), '\n      <div id="coll-atlas"></div>\n      ').concat(section("By resolution", '<div class="res-bars">'.concat(per.map(([k, l, v]) => '<a class="res-row" href="#/collection/'.concat(k, '">\n          <span class="res-label">').concat(esc(l), '</span><span class="res-bar"><i style="width:').concat(v / max * 100, '%"></i></span><span class="res-n">').concat(v.toLocaleString(), "</span></a>")).join(""), "</div>")), '\n      <p class="coll-foot">').concat(all.length.toLocaleString(), " albums \xB7 ").concat(d.songs.toLocaleString(), " songs").concat(bytes ? " \xB7 ".concat(fmtSize(bytes)) : "", " \xB7 read ").concat(esc(new Date(d.at).toLocaleDateString(void 0, { day: "numeric", month: "long" })), '\n        <button class="btn btn-link" data-act="coll-reread">Read again</button></p>\n      <div id="coll-rated"></div>');
+    (_a = window.Atlas) == null ? void 0 : _a.mount($("#coll-atlas"));
     const top = (d.rated || []).filter((s) => s.userRating >= 4).sort((x, y) => y.userRating - x.userRating).slice(0, 20);
     if (top.length) {
       $("#coll-rated").innerHTML = '<section class="section"><div class="section-head"><h2>Your Top Rated Songs</h2><a href="#" data-act="mix-top">Play your 5-star songs</a></div>'.concat(trackRows(register(top), { art: true, numbers: "index" }), "</section>");
