@@ -343,7 +343,8 @@ uses `LANG=C.UTF-8` to avoid locale noise.
   Firefox (Firefox's timing not counted). Not testable here: a locked iPhone, AirPods. Agreed acceptance on the owner's
   phone: 20 songs in a row locked without a stop; if still bad after a week of use, stop work on the iPhone version.
   **Result (owner, four days later, on the real iPhone): "1.7.0 has been working great". The iPhone version stays.**
-  AirPods with the phone locked hasn't been tried on 1.7.0 yet.
+  AirPods (owner, after 1.8.0): "working great" on 10–30 min walks. Whether an earbud taken out and put back with the phone
+  LOCKED brings the sound back (the 1.5.12–1.5.19 case) was not confirmed separately.
 - **1.8.0** "Maré updates itself": the owner can't have Claude run the update command (no route from a cloud session to
   their network), so the container updates itself. The host command now also installs `/usr/local/bin/mare-update` +
   `mare-update.service` / `.timer` (hourly, 2 min after boot). The bootstrap reads `/etc/mare.conf`, compares the
