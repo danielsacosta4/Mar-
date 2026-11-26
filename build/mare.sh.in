@@ -9,6 +9,8 @@
 #              connects it to Navidrome.
 #  Next runs : finds the Maré container and updates it in place
 #              (your settings are kept).
+#  In between: the container checks GitHub every hour and installs new
+#              releases by itself (mare.sh --apply, run by mare-update).
 #
 #  The app itself is downloaded from the Maré repository on GitHub (the
 #  same version as this script); the Debian template and Caddy come from
@@ -24,8 +26,12 @@ TAG="mare"
 # Where the app comes from: the repository as a tarball (override for testing).
 # To go back to an earlier release, set MARE_REF to that release's commit (listed with every release):
 #   MARE_REF=<commit> bash -c "$(curl -fsSL https://raw.githubusercontent.com/danielsacosta4/Mar-/main/mare.sh)"
+# Installing a chosen release also PINS it: the container then stops updating itself until this command is run plainly.
+MARE_PIN=${MARE_REF:-}
 MARE_REF=${MARE_REF:-refs/heads/main}
 MARE_SOURCE=${MARE_SOURCE:-https://codeload.github.com/danielsacosta4/Mar-/tar.gz/$MARE_REF}
+# The container checks GitHub every hour and installs new releases by itself. MARE_AUTOUPDATE=0 switches that off.
+MARE_AUTOUPDATE=${MARE_AUTOUPDATE:-1}
 APP_VERSION=
 
 # ---------- look ----------
@@ -104,7 +110,7 @@ caddyfile() {   # caddyfile NAVIDROME_URL
 		rewrite * /ws/2{uri}
 		reverse_proxy https://musicbrainz.org {
 			header_up Host musicbrainz.org
-			header_up User-Agent "Mare/${MARE_VERSION} ( https://github.com/danielsacosta4/Mar- )"
+			header_up User-Agent "Mare/${MARE_VERSION%.*} ( https://github.com/danielsacosta4/Mar- )"
 			header_up -X-Forwarded-For
 			header_up -X-Real-IP
 		}
@@ -115,7 +121,7 @@ caddyfile() {   # caddyfile NAVIDROME_URL
 		rewrite * /oauth2{uri}
 		reverse_proxy https://musicbrainz.org {
 			header_up Host musicbrainz.org
-			header_up User-Agent "Mare/${MARE_VERSION} ( https://github.com/danielsacosta4/Mar- )"
+			header_up User-Agent "Mare/${MARE_VERSION%.*} ( https://github.com/danielsacosta4/Mar- )"
 			header_up -X-Forwarded-For
 			header_up -X-Real-IP
 		}
@@ -144,6 +150,139 @@ caddyfile() {   # caddyfile NAVIDROME_URL
 EOF
 }
 
+write_conf() {   # write_conf NAVIDROME VERSION PIN AUTOUPDATE
+  printf 'NAVIDROME=%q\nMARE_VERSION=%q\nMARE_PIN=%q\nMARE_AUTOUPDATE=%q\n' "$1" "$2" "$3" "$4"
+}
+
+# ---------- self-update (inside the container) ----------
+# The bootstrap the timer runs every hour. Small on purpose: it only finds out whether GitHub has another version and
+# then hands over to that release's own mare.sh (--apply), so the install logic always matches the release.
+updater_script() {
+  cat <<'EOF'
+#!/usr/bin/env bash
+# Maré self-update. Written by mare.sh; every update rewrites it. Runs from mare-update.timer.
+set -u
+ROOT=${MARE_ROOT:-}
+CONF=$ROOT/etc/mare.conf
+[ -r "$CONF" ] || exit 0
+. "$CONF"
+STATUS=$ROOT/var/www/mare/update.json
+RAW=${MARE_RAW:-https://raw.githubusercontent.com/danielsacosta4/Mar-/main}
+SRC=${MARE_SOURCE:-https://codeload.github.com/danielsacosta4/Mar-/tar.gz/refs/heads/main}
+say() {   # say STATE NOTE -> the line Settings shows
+  printf '{"checked":"%s","installed":"%s","state":"%s","note":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${MARE_VERSION:-}" "$1" "$2" \
+    > "$STATUS.tmp" 2>/dev/null && mv "$STATUS.tmp" "$STATUS" && chmod a+r "$STATUS"
+}
+[ "${MARE_AUTOUPDATE:-1}" = 1 ] || { say off "Automatic updates are switched off"; exit 0; }
+[ -z "${MARE_PIN:-}" ] || { say pinned "Kept on this version on purpose"; exit 0; }
+latest=$(curl -fsSL -m 30 "$RAW/app/sw.js" 2>/dev/null | grep -o "VERSION = '[^']*'" | head -1 | cut -d"'" -f2)
+[ -n "$latest" ] || { say offline "Could not reach GitHub"; exit 0; }
+[ "$latest" != "${MARE_VERSION:-}" ] || { say current ""; exit 0; }
+if [ "$latest" = "$(cat "$ROOT/var/lib/mare/failed" 2>/dev/null)" ]; then
+  say failed "Version $latest did not start here and was undone. Waiting for the next release."; exit 0
+fi
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+if ! curl -fsSL -m 180 --retry 3 "$SRC" -o "$tmp/src.tgz" 2>/dev/null \
+  || ! tar xzf "$tmp/src.tgz" -C "$tmp" --strip-components=1 2>/dev/null \
+  || [ ! -f "$tmp/mare.sh" ] || [ ! -f "$tmp/app/app.js" ]; then
+  say offline "The download of version $latest failed. Trying again in an hour."; exit 0
+fi
+bash "$tmp/mare.sh" --apply "$tmp"
+EOF
+}
+
+updater_service() {
+  printf '%s\n' '[Unit]' 'Description=Maré: check GitHub for a new release and install it' 'After=network-online.target' '' \
+    '[Service]' 'Type=oneshot' 'ExecStart=/usr/local/bin/mare-update'
+}
+updater_timer() {
+  printf '%s\n' '[Unit]' 'Description=Maré: hourly update check' '' \
+    '[Timer]' 'OnBootSec=2min' 'OnUnitActiveSec=1h' 'RandomizedDelaySec=5min' '' '[Install]' 'WantedBy=timers.target'
+}
+
+# Write the updater into the container's file system (ROOT is only non-empty in tests) and switch its timer on or off.
+install_updater_local() {   # install_updater_local AUTOUPDATE
+  local root=${MARE_ROOT:-}
+  mkdir -p "$root/usr/local/bin" "$root/etc/systemd/system" "$root/var/lib/mare"
+  updater_script >"$root/usr/local/bin/mare-update"; chmod 755 "$root/usr/local/bin/mare-update"
+  updater_service >"$root/etc/systemd/system/mare-update.service"
+  updater_timer >"$root/etc/systemd/system/mare-update.timer"
+  systemctl daemon-reload >/dev/null 2>&1 || true
+  if [[ $1 == 1 ]]; then systemctl enable -q --now mare-update.timer >/dev/null 2>&1 || true
+  else systemctl disable -q --now mare-update.timer >/dev/null 2>&1 || true; fi
+}
+
+# mare.sh --apply DIR: install the release unpacked in DIR, from inside the container. Undoes itself if Maré
+# doesn't answer with the new version afterwards.
+apply_local() {
+  local src=$1 root=${MARE_ROOT:-} conf www cf nav was pin auto new changed=0 okh=0 url
+  trap - ERR
+  conf=$root/etc/mare.conf; www=$root/var/www; cf=$root/etc/caddy/Caddyfile
+  [[ -r $conf && -f $src/app/app.js ]] || { echo "mare.sh --apply: nothing to do here" >&2; exit 1; }
+  nav=$(. "$conf"; printf %s "${NAVIDROME:-}"); was=$(. "$conf"; printf %s "${MARE_VERSION:-}")
+  pin=$(. "$conf"; printf %s "${MARE_PIN:-}"); auto=$(. "$conf"; printf %s "${MARE_AUTOUPDATE:-1}")
+  new=$(grep -o "MARE_VERSION = '[^']*'" "$src/app/app.js" | head -1 | cut -d"'" -f2)
+  url=${MARE_HEALTH_URL:-http://127.0.0.1/app.js}
+  status() {   # status INSTALLED STATE NOTE
+    printf '{"checked":"%s","installed":"%s","state":"%s","note":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$2" "$3" >"$www/mare/update.json"
+    chmod a+r "$www/mare/update.json"
+  }
+  refuse() {   # refuse NOTE: this release is not installed and not tried again
+    mkdir -p "$root/var/lib/mare"; printf '%s\n' "$new" >"$root/var/lib/mare/failed"
+    status "$was" failed "$1"; echo "mare-update: $1" >&2; exit 1
+  }
+  [[ -n $new && -n $nav ]] || refuse "Version ${new:-?} could not be read; it was not installed."
+
+  rm -rf "$www/mare.new" "$www/mare.old"; mkdir -p "$www/mare.new"
+  cp -a "$src/app/." "$www/mare.new/" && chmod -R a+rX "$www/mare.new" || { rm -rf "$www/mare.new"; refuse "Version $new could not be copied; it was not installed."; }
+  caddyfile "$nav" >"$cf.new"
+  if ! caddy validate --config "$cf.new" --adapter caddyfile >/dev/null 2>&1; then
+    rm -rf "$www/mare.new" "$cf.new"; refuse "Version $new has a server configuration this container rejects; it was not installed."
+  fi
+  cmp -s "$cf.new" "$cf" || changed=1
+
+  mv "$www/mare" "$www/mare.old" && mv "$www/mare.new" "$www/mare"
+  if ((changed)); then cp -p "$cf" "$cf.old"; mv "$cf.new" "$cf"; systemctl restart caddy || true; else rm -f "$cf.new"; fi
+  for _ in $(seq 1 10); do
+    if curl -fsS -m 5 "$url" 2>/dev/null | grep -q "MARE_VERSION = '$new'"; then okh=1; break; fi
+    sleep "${MARE_HEALTH_WAIT:-2}"
+  done
+  if ((!okh)); then   # put everything back
+    rm -rf "$www/mare"; mv "$www/mare.old" "$www/mare"
+    if ((changed)); then mv "$cf.old" "$cf"; systemctl restart caddy || true; fi
+    refuse "Version $new did not start here and was undone. Waiting for the next release."
+  fi
+
+  write_conf "$nav" "$new" "$pin" "$auto" >"$conf"
+  rm -rf "$www/mare.old" "$cf.old" "$root/var/lib/mare/failed"
+  install_updater_local "$auto"
+  status "$new" updated "Updated from ${was:-an earlier version}"
+  echo "mare-update: installed $new (was ${was:-?})"
+}
+
+# Host side: put the updater into the container and let it report straight away.
+push_updater() {   # push_updater CTID
+  local id=$1 tmp
+  tmp=$(mktemp -d)
+  updater_script >"$tmp/mare-update"; updater_service >"$tmp/mare-update.service"; updater_timer >"$tmp/mare-update.timer"
+  pct push "$id" "$tmp/mare-update" /usr/local/bin/mare-update
+  pct push "$id" "$tmp/mare-update.service" /etc/systemd/system/mare-update.service
+  pct push "$id" "$tmp/mare-update.timer" /etc/systemd/system/mare-update.timer
+  pct exec "$id" -- sh -c "
+    chmod 755 /usr/local/bin/mare-update; mkdir -p /var/lib/mare; rm -f /var/lib/mare/failed
+    systemctl daemon-reload >/dev/null 2>&1 || true
+    if [ '$MARE_AUTOUPDATE' = 1 ]; then systemctl enable -q --now mare-update.timer >/dev/null 2>&1 || true
+    else systemctl disable -q --now mare-update.timer >/dev/null 2>&1 || true; fi
+    systemctl start --no-block mare-update.service >/dev/null 2>&1 || true"
+  rm -rf "$tmp"
+}
+updates_line() {
+  if [[ $MARE_AUTOUPDATE != 1 ]]; then echo "automatic updates are off; run this command again to update"
+  elif [[ -n $MARE_PIN ]]; then echo "kept on this version; run the plain install command to follow new releases again"
+  else echo "Maré checks GitHub every hour and installs new releases by itself"; fi
+}
+
 normalise_url() { local u=${1%/}; [[ $u =~ ^https?:// ]] || u="http://$u"; printf '%s' "$u"; }
 
 ct_ip() { pct exec "$1" -- sh -c "hostname -I 2>/dev/null | awk '{print \$1}'" 2>/dev/null || true; }
@@ -162,7 +301,7 @@ push_app() {   # push_app CTID NAVIDROME_URL
   tmp=$(mktemp -d)
   tar czf "$tmp/mare.tgz" -C "$APPDIR" .
   caddyfile "$nav" >"$tmp/Caddyfile"
-  printf 'NAVIDROME=%q\nMARE_VERSION=%q\n' "$nav" "$APP_VERSION" >"$tmp/mare.conf"
+  write_conf "$nav" "$APP_VERSION" "$MARE_PIN" "$MARE_AUTOUPDATE" >"$tmp/mare.conf"
   pct push "$id" "$tmp/mare.tgz" /tmp/mare.tgz
   pct push "$id" "$tmp/Caddyfile" /etc/caddy/Caddyfile
   pct push "$id" "$tmp/mare.conf" /etc/mare.conf
@@ -193,6 +332,9 @@ check_navidrome() {   # check_navidrome CTID URL -> 0 if it answers
 }
 
 # ============================================================================
+# Inside the container, called by the updater with a freshly downloaded release.
+if [[ ${1:-} == --apply ]]; then apply_local "${2:?usage: mare.sh --apply DIR}"; exit 0; fi
+
 banner
 
 command -v pct >/dev/null && command -v pveam >/dev/null \
@@ -227,7 +369,9 @@ if [[ -n $EXISTING ]]; then
     fi
     step "Updating"
     push_app "$EXISTING" "$NAV"
+    push_updater "$EXISTING"
     ok "Maré v$APP_VERSION installed"
+    ok "Updates: $(updates_line)"
     check_navidrome "$EXISTING" "$NAV" && ok "Navidrome answers" || warn "Navidrome didn't answer at $NAV"
     IP=$(ct_ip "$EXISTING")
     printf '\n  %s\n  Open: http://%s\n\n' "${G}${B}Done.${N}" "${IP:-<container IP>}"
@@ -291,7 +435,7 @@ pct create "$CTID" "$TPL_STORE:vztmpl/$TPL" \
   --hostname "$HOSTNAME_CT" --cores "$CORES" --memory "$RAM" --swap 256 \
   --rootfs "$ROOT_STORE:$DISK" --net0 "$NETCFG" \
   --unprivileged 1 --features nesting=1 --onboot 1 --tags "$TAG" \
-  --description "Maré — Navidrome web client. Update: run the install command again on the host." >/dev/null
+  --description "Maré — Navidrome web client. It updates itself from GitHub; the install command on the host also updates it." >/dev/null
 pct start "$CTID"
 ok "Container $CTID created and started"
 
@@ -305,6 +449,7 @@ ok "Caddy installed"
 
 step "Installing Maré v$APP_VERSION"
 push_app "$CTID" "$NAV"
+push_updater "$CTID"
 ok "App installed and Caddy configured"
 
 step "Checking"
@@ -327,7 +472,7 @@ cat <<EOF
 
   Open        http://${IP:-<container IP>}
   NPMplus     point your music subdomain at http://${IP:-<container IP>} port 80
-  Update      run the same install command again on the host
+  Updates     $(updates_line)
   Container   $CTID ($HOSTNAME_CT)
 
 EOF

@@ -13,3 +13,5 @@ for t in test_core test_discovery test_round3 test_round4 test_round5 test_round
 done
 # Phone playback against the real Navidrome (it switches the server off and on: needs test/real_navidrome.sh's folder).
 echo "== test_navidrome, iPhone rules"; MARE_IPHONE=1 python3 test/test_navidrome.py "$OUT"
+# The container's self-update, in a scratch folder (needs ./mare.sh from build/build.sh).
+echo "== test_selfupdate"; bash test/test_selfupdate.sh

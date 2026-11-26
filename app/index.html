@@ -16,7 +16,7 @@
   <script>
     // Old iPhones (iOS 12, e.g. iPhone 6) can't read the app's newer code: they get the older-style copy in legacy/,
     // which build/build.sh writes. Written in old-style JavaScript on purpose. ?v= keeps proxies from serving old files.
-    var MARE_V = '1.7.0', MARE_DIR = '';
+    var MARE_V = '1.8.0', MARE_DIR = '';
     try { if (localStorage.getItem('mare.forceLegacy')) throw 0; new Function('var a; return a?.b ?? (a ||= 1)'); } catch (e) { MARE_DIR = 'legacy/'; }
     document.write('<link rel="stylesheet" href="' + MARE_DIR + 'app.css?v=' + MARE_V + '">');
   </script>
