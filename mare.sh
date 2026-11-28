@@ -333,6 +333,16 @@ push_app() {   # push_app CTID NAVIDROME_URL
 check_navidrome() {   # check_navidrome CTID URL -> 0 if it answers
   pct exec "$1" -- sh -c "curl -fsS -m 8 '$2/rest/ping.view' 2>/dev/null | grep -q subsonic-response"
 }
+# The same question asked the way the app asks it: through Maré's own web server. (On 28 Nov 2026 Navidrome answered
+# the container directly while every call through Maré was redirected, and this script said all was well.)
+check_through_mare() {   # check_through_mare CTID -> 0 if Navidrome answers through Maré
+  pct exec "$1" -- sh -c "curl -fsS -m 12 'http://127.0.0.1/rest/ping.view' 2>/dev/null | grep -q subsonic-response"
+}
+navidrome_report() {   # navidrome_report CTID URL
+  if check_through_mare "$1"; then ok "Navidrome answers through Maré"
+  elif check_navidrome "$1" "$2"; then warn "Navidrome answers at $2, but not through Maré. Send this line to Claude."
+  else warn "Navidrome didn't answer at $2"; fi
+}
 
 # ============================================================================
 # Inside the container, called by the updater with a freshly downloaded release.
@@ -375,7 +385,7 @@ if [[ -n $EXISTING ]]; then
     push_updater "$EXISTING"
     ok "Maré v$APP_VERSION installed"
     ok "Updates: $(updates_line)"
-    check_navidrome "$EXISTING" "$NAV" && ok "Navidrome answers" || warn "Navidrome didn't answer at $NAV"
+    navidrome_report "$EXISTING" "$NAV"
     IP=$(ct_ip "$EXISTING")
     printf '\n  %s\n  Open: http://%s\n\n' "${G}${B}Done.${N}" "${IP:-<container IP>}"
     exit 0
