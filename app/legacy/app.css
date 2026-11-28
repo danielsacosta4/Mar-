@@ -4359,6 +4359,86 @@ input[type=range]:hover::-moz-range-thumb {
     padding: 8px 4px 8px 12px;
   }
 }
+.hc {
+  margin: 0 0 22px;
+  border-top: 3px solid var(--ink);
+}
+.hc-note {
+  margin: 12px 0;
+  font: italic 16px/1.4 var(--font-serif);
+  color: var(--ink-2);
+  max-width: 60ch;
+}
+.hc-note b {
+  font-style: normal;
+  color: var(--ink);
+}
+.hc-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 2px 14px;
+  align-items: baseline;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+.hc-name {
+  min-width: 0;
+  display: grid;
+}
+.hc-name b {
+  font: 700 15px/1.25 var(--font);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hc-name span {
+  font: italic 14px/1.3 var(--font-serif);
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hc-name:hover b {
+  text-decoration: underline;
+}
+.hc-says {
+  font: 700 12px var(--font);
+  letter-spacing: .06em;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.hc-v {
+  font: 700 10.5px/1 var(--font);
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  padding: 5px 7px;
+  border: 1.5px solid var(--line);
+  color: var(--ink-2);
+  min-width: 86px;
+  text-align: center;
+}
+.hc-v.good {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+.hc-v.bad {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.hc-row p {
+  grid-column: 1 / -1;
+  margin: 0;
+  font: 14px/1.4 var(--font-serif);
+  color: var(--ink-2);
+}
+.hc-foot {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 14px 0 0;
+  border-top: 1px solid var(--line);
+}
 
 /* ---- iOS 12 stand-ins (added by build/legacy.py) ---- */
 /* Now Playing fills the screen (its inset uses a variable, which esbuild leaves as is). */

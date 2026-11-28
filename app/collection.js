@@ -525,9 +525,23 @@ actions['scan-library'] = (el) => Scan.run(el);
     if (!box || $('[data-act="scan-library"]', box)) return;
     box.insertAdjacentHTML('afterbegin', `<h2 class="set-group">Library</h2>
       <div class="set-row"><div><h3>Scan library</h3><p>Look for new music in your folders. Added albums appear in Maré as soon as Navidrome finishes.</p></div>
-        <div class="set-actions"><button class="btn" data-act="scan-library">Scan library</button></div></div>`);
+        <div class="set-actions"><button class="btn" data-act="scan-library">Scan library</button></div></div>
+      ${Player.volLocked ? '' : `<div class="set-row"><div><h3>Check a sample of hi-res albums</h3><p>Takes 20 albums labelled hi-res, reads the start of one song from each, and measures two things a label can't show: whether the sound really goes above CD range, and whether a 24-bit file uses its extra bits. A measuring tool for now. It downloads about 15 MB per album and takes a minute or two.</p></div>
+        <div class="set-actions"><button class="btn" data-act="hi-check">Check 20 albums</button></div></div>
+      <div class="hc" id="hicheck" hidden></div>`}`);
   };
 }
+// The measuring itself lives in hicheck.js, fetched only when the button is pressed.
+actions['hi-check'] = async () => {
+  const box = $('#hicheck');
+  if (!box) return;
+  if (!window.HiCheck) {
+    try {
+      await new Promise((res, rej) => { const s = document.createElement('script'); s.src = `hicheck.js?v=${window.MARE_VERSION}`; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
+    } catch { toast('Couldn\'t load the checking tool. Check the connection and try again.'); return; }
+  }
+  window.HiCheck.run(box);
+};
 
 window.Scan = Scan;
 
