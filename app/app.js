@@ -842,7 +842,7 @@ const Player = {
   // ...and it's over: carry on where the song stopped. Not when it was long ago (music starting by itself an hour
   // later is a surprise, not a favour), and not when iOS has already started it again.
   afterInterruption(shown) {
-    const since = this.interrupted ? Date.now() - this.interrupted : 0;
+    const at = this.interrupted || Date.now(), since = Date.now() - at;
     this.interrupted = 0; this.resumeOnShow = false;
     if (!this.current() || !this.audio.paused) return;
     if (since > 15 * MIN) { this.note('the interruption ended after more than 15 min: staying paused'); return; }
@@ -853,7 +853,8 @@ const Player = {
     this._callCheck = setTimeout(() => {
       if (!this.audio.paused || !this.current()) return;
       this.note(`couldn't start by itself after the call (${document.hidden ? 'locked' : 'open'})`);
-      if (document.hidden) { this.resumeOnShow = true; this.sysPaused = true; }
+      // (the 15 minutes keep counting from when the call began, so opening Maré hours later starts nothing)
+      if (document.hidden) { this.resumeOnShow = true; this.interrupted = at; this.sysPaused = true; }
     }, 2500);
   },
 

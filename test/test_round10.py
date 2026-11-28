@@ -82,6 +82,13 @@ async def main():
         await pg.evaluate("(()=>{ HTMLMediaElement.prototype.play=window.__play; window.__hid=false; document.dispatchEvent(new Event('visibilitychange')); })()"); await settle()
         check('starts the moment Maré is on screen again', await playing(), str(await log(2)))
 
+        print('== refused while locked, and Maré is only opened again much later')
+        await pg.evaluate("(()=>{ window.__hid=true; document.dispatchEvent(new Event('visibilitychange')); __as('interrupted'); Player.audio.pause(); HTMLMediaElement.prototype.play=function(){ return Promise.reject(new DOMException('not allowed','NotAllowedError')); }; })()"); await pg.wait_for_timeout(300)
+        await pg.evaluate("__as('active')"); await settle(3200)
+        await pg.evaluate("(()=>{ HTMLMediaElement.prototype.play=window.__play; Player.interrupted=Date.now()-3*3600000; window.__hid=false; document.dispatchEvent(new Event('visibilitychange')); })()"); await settle(1500)
+        check('nothing starts by itself hours later', not await playing() and not await pg.evaluate("Player.resumeOnShow"), str(await log(2)))
+        await pg.evaluate("Player.toggle()"); await pg.wait_for_timeout(800)
+
         print('== the phone never said the call ended (page was frozen): back on screen')
         await pg.evaluate("window.__hid=true; document.dispatchEvent(new Event('visibilitychange')); __as('interrupted'); Player.audio.pause()"); await pg.wait_for_timeout(300)
         await pg.evaluate("navigator.audioSession.state='active'; window.__hid=false; document.dispatchEvent(new Event('visibilitychange'))"); await settle()
