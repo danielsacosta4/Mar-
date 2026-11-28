@@ -4224,6 +4224,10 @@ input[type=range]:hover::-moz-range-thumb {
   bottom: -7px;
   left: -7px;
 }
+.touch .track .t-sub a,
+.touch .q-item .t-sub a {
+  pointer-events: none;
+}
 .touch .section-head a::after,
 .touch .head-links a::after {
   top: -15px;

@@ -117,6 +117,8 @@ async def main():
         await pg.click('.np-tab[data-view="art"]'); await pg.evaluate("UI.closeNP&&UI.closeNP()"); await pg.wait_for_timeout(400)
         sel=await pg.evaluate("""(()=>{const u=q=>{let e=document.querySelector(q); if(!e) return 'missing'; for(;e;e=e.parentElement){ const s=getComputedStyle(e), v=s.webkitUserSelect||s.userSelect; if(v&&v!=='auto') return v; } return 'auto'}; return {row:u('.track .t-title'), head:u('.section-head h2, .side-head, h1'), tab:u('.tabbar a'), lyrics:u('.np-lyrics')}})()""")
         check('song rows, headings and tabs can\'t be selected by a long press; lyrics can', sel['row']==sel['head']==sel['tab']=='none' and sel['lyrics']=='text', str(sel))
+        hit=await pg.evaluate("""(()=>{const a=document.querySelector('.track .t-sub a'); if(!a) return 'no link'; const r=a.getBoundingClientRect(); const e=document.elementFromPoint(r.left+r.width/2, r.top+r.height/2); return e===a?'the link':(e&&e.closest('.track')?'the row':'other')})()""")
+        check('a tap on the artist name inside a song row plays the song (it used to open the artist)', hit=='the row', hit)
         area=await pg.evaluate("""(()=>{const e=document.querySelector('.track .t-more'), r=e.getBoundingClientRect(), a=getComputedStyle(e,'::after'); return Math.round(r.width-2*parseFloat(a.left))})()""")
         check('the "…" on a song row has a 44 px touch area', area>=44, f'{area} px')
         await pg.locator('.track').nth(2).locator('.t-more').click(); await pg.wait_for_timeout(400)

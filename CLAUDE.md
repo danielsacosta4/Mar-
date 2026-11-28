@@ -434,6 +434,9 @@ uses `LANG=C.UTF-8` to avoid locale noise.
   plays the artist shuffled; toast says so). **Now Playing**: the top-right "…" is gone (a spacer keeps the tabs
   centred); the one beside the heart stays, on computers too. Also: the offline notice spans the screen on phones (it
   was a narrow box with its text in four lines); "Save as Playlist" is one button text again on computers.
+  Found by test_legacy failing in Firefox only: on touch screens the artist link in a song row's second line
+  (`.t-sub a`) sat at the row's centre and took the tap, opening the artist instead of playing; it no longer takes taps
+  there (`.touch .track .t-sub a { pointer-events: none }`), "…" > Go to Artist remains.
 
 ## Roadmap (agreed with the owner; each needs a plan + go-ahead first)
 

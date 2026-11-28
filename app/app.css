@@ -1222,6 +1222,9 @@ input[type="range"]:hover::-moz-range-thumb { opacity: 1; }
 .touch .t-more::after, .touch .section-head a::after, .touch .head-links a::after, .touch .star::after, .touch .np .icon-btn::after,
 .touch .detail-actions .icon-btn::after, .touch .np-tab::after, .touch .q-btn::after, .touch .miss-btn::after { content: ""; position: absolute; }
 .touch .t-more::after { inset: -7px; }
+/* A tap on a song row plays the song. The artist name in the row's second line is a link on computers; under a thumb
+   it sat in the middle of the row and opened the artist instead ("…" > Go to Artist still does that). */
+.touch .track .t-sub a, .touch .q-item .t-sub a { pointer-events: none; }
 .touch .section-head a::after, .touch .head-links a::after { inset: -15px -6px -14px; }
 .touch .star::after { inset: -7px 0; }
 .touch .np .icon-btn::after, .touch .detail-actions .icon-btn::after { inset: -4px; }
