@@ -17,8 +17,9 @@ interface and Spotify-style discovery built on **ListenBrainz**. It is a persona
 - **Navidrome** (latest, 0.6x) runs as an app on a **TrueNAS** VM (VM 102) on the same host.
 - **NPMplus** (LXC 114) is the reverse proxy; HTTPS domain `*.servidorcasinha.com`.
 - Maré runs in its own **Debian LXC tagged `mare`**, created by `mare.sh`; it serves the app with **Caddy** on port 80.
-  NPMplus points a subdomain at it. Navidrome itself is reached by Caddy (the owner chose the public
-  `https://navidrome.servidorcasinha.com` address; the LAN `ip:port` is also supported).
+  NPMplus points a subdomain at it (`music.servidorcasinha.com`; the container is 107, `192.168.1.79` by DHCP).
+  Navidrome itself is reached by Caddy at its LAN `ip:port` since 28 Nov 2026 (before that the public
+  `https://navidrome.servidorcasinha.com`, which broke when NPMplus began redirecting; see History 1.8.2).
 - Music library: mostly **Qobuz downloads** (FLAC, often 24-bit hi-res). Files usually have **no MusicBrainz IDs**
   and **no ReplayGain tags**, so matching is done by artist + title, and volume levelling needs tags to be added
   (suggested: rsgain; not done yet).
