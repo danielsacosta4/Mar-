@@ -1,5 +1,5 @@
 "use strict";
-window.MARE_VERSION = "1.8.2";
+window.MARE_VERSION = "1.8.3";
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 const esc = (s) => String(s != null ? s : "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -208,6 +208,7 @@ const STROKE = {
   volume: '<path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/>',
   volumeLow: '<path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/>',
   down: '<path d="m6 9 6 6 6-6"/>',
+  back: '<path d="m15 5-7 7 7 7"/>',
   logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/>',
   playNext: '<path d="M3 6h12M3 12h8M3 18h8"/><path d="m15 13 6 3.5-6 3.5z"/>',
   addQueue: '<path d="M3 6h14M3 12h10M3 18h7"/><path d="M18 14v7M14.5 17.5h7"/>',
@@ -1676,7 +1677,7 @@ View.album = async (main, params, id) => {
   const genre = a.genre || ((_a = songs.find((s) => s.genre)) == null ? void 0 : _a.genre);
   const plays = songs.reduce((t, s) => t + (s.playCount || 0), 0);
   const meta = [a.year, genre, plays && "played ".concat(plural(plays, "time"))].filter(Boolean).join(" \xB7 ");
-  main.innerHTML = '<article class="sleeve">\n      <header class="sleeve-front">\n        <div class="art">'.concat(artImg(a.coverArt, 600, a.name), '</div>\n        <div>\n          <div class="detail-kicker">').concat(a.isCompilation ? "Compilation" : "Album", "</div>\n          <h1>").concat(esc(a.name), "</h1>\n          ").concat(a.artistId ? '<a class="detail-artist" href="#/artist/'.concat(esc(a.artistId), '">').concat(esc(a.artist), "</a>") : '<div class="detail-artist">'.concat(esc(a.artist || ""), "</div>"), '\n          <div class="detail-meta">').concat(esc(meta), "</div>\n          ").concat(typeof Rating !== "undefined" ? '<div class="album-rate"><span class="label">Your rating</span>'.concat(Rating.stars(a.userRating || 0, 'data-kind="album" data-id="'.concat(esc(a.id), '"')), "</div>") : "", '\n        </div>\n      </header>\n      <div class="sleeve-back">\n        <div class="detail-actions">\n          <button class="btn btn-primary" data-act="play-album" data-id="').concat(esc(a.id), '">').concat(icon("play"), 'Play</button>\n          <button class="btn" data-act="shuffle-album" data-id="').concat(esc(a.id), '">').concat(icon("shuffle"), 'Shuffle</button>\n          <button class="btn btn-ghost').concat(starred ? " on" : "", '" data-act="star-album" data-id="').concat(esc(a.id), '">').concat(heartIcon(starred)).concat(starred ? "Favorited" : "Favorite", '</button>\n          <button class="icon-btn" data-act="menu-album" data-id="').concat(esc(a.id), '" aria-label="More">').concat(icon("more"), "</button>\n        </div>\n        ").concat(trackRows(songs, { sides: true }), '\n        <p class="album-foot">').concat(plural(songs.length, "song"), ", ").concat(fmtLong(total)).concat(a.playCount ? " \xB7 you've played it ".concat(plural(a.playCount, "time")) : "").concat(a.played ? ", last on ".concat(esc(new Date(a.played).toLocaleDateString(void 0, { day: "numeric", month: "long", year: "numeric" }))) : "", '</p>\n        <div class="liner" id="liner">').concat(creditsHtml(a, songs)).concat(typeof specSheet === "function" ? specSheet(songs) : "", '</div>\n      </div>\n    </article>\n    <div id="album-more"></div>');
+  main.innerHTML = '<article class="sleeve">\n      <header class="sleeve-front">\n        <div class="art">'.concat(artImg(a.coverArt, 600, a.name), '</div>\n        <div>\n          <div class="detail-kicker">').concat(a.isCompilation ? "Compilation" : "Album", "</div>\n          <h1>").concat(esc(a.name), "</h1>\n          ").concat(a.artistId ? '<a class="detail-artist" href="#/artist/'.concat(esc(a.artistId), '">').concat(esc(a.artist), "</a>") : '<div class="detail-artist">'.concat(esc(a.artist || ""), "</div>"), '\n          <div class="detail-meta">').concat(esc(meta), "</div>\n          ").concat(typeof Rating !== "undefined" ? '<div class="album-rate"><span class="label">Your rating</span>'.concat(Rating.stars(a.userRating || 0, 'data-kind="album" data-id="'.concat(esc(a.id), '"')), "</div>") : "", '\n        </div>\n      </header>\n      <div class="sleeve-back">\n        <div class="detail-actions">\n          <button class="btn btn-primary" data-act="play-album" data-id="').concat(esc(a.id), '">').concat(icon("play"), 'Play</button>\n          <button class="btn" data-act="shuffle-album" data-id="').concat(esc(a.id), '">').concat(icon("shuffle"), 'Shuffle</button>\n          <button class="btn btn-fav').concat(starred ? " on" : "", '" data-act="star-album" data-id="').concat(esc(a.id), '">').concat(heartIcon(starred)).concat(starred ? "Favorited" : "Favorite", '</button>\n          <button class="btn btn-more" data-act="menu-album" data-id="').concat(esc(a.id), '" aria-label="More">').concat(icon("more"), "</button>\n        </div>\n        ").concat(trackRows(songs, { sides: true }), '\n        <p class="album-foot">').concat(plural(songs.length, "song"), ", ").concat(fmtLong(total)).concat(a.playCount ? " \xB7 you've played it ".concat(plural(a.playCount, "time")) : "").concat(a.played ? ", last on ".concat(esc(new Date(a.played).toLocaleDateString(void 0, { day: "numeric", month: "long", year: "numeric" }))) : "", '</p>\n        <div class="liner" id="liner">').concat(creditsHtml(a, songs)).concat(typeof specSheet === "function" ? specSheet(songs) : "", '</div>\n      </div>\n    </article>\n    <div id="album-more"></div>');
   if (UI.vt) $(".sleeve-front .art", main).style.viewTransitionName = "cover";
   applyTint($(".sleeve-front", main), API.cover(a.coverArt, 300));
   markPlaying();
@@ -1777,7 +1778,7 @@ View.artist = async (main, params, id) => {
     const rest = list.filter((x) => !used.has(x));
     if (rest.length) disco += section(disco ? "Other releases" : "Discography", grid(rest, discCard));
   } else disco = section("Discography", grid(list, discCard));
-  main.innerHTML = '<header class="profile">\n      <div class="profile-text">\n        <div class="detail-kicker">Artist \xB7 '.concat(plural(list.length, "album"), "</div>\n        <h1>").concat(esc(a.name), '</h1>\n        <div class="profile-acts">\n          <button class="hero-play" data-act="play-artist" data-id="').concat(esc(a.id), '" aria-label="Shuffle ').concat(esc(a.name), '">').concat(icon("play"), '</button>\n          <button class="hero-radio" data-act="radio-artist" data-id="').concat(esc(a.id), '">').concat(icon("radio"), 'Radio</button>\n        </div>\n      </div>\n      <div class="profile-photo">').concat(heroSrc ? '<img src="'.concat(esc(heroSrc), '" alt="">') : "", '</div>\n    </header>\n    <div class="profile-cols"><div id="artist-bio"></div><div id="artist-top"></div></div>\n    ').concat(disco, '\n    <div id="artist-similar"></div>');
+  main.innerHTML = '<header class="profile">\n      <div class="profile-text">\n        <div class="detail-kicker">Artist \xB7 '.concat(plural(list.length, "album"), "</div>\n        <h1>").concat(esc(a.name), '</h1>\n        <div class="profile-acts">\n          <button class="hero-play" data-act="play-artist" data-id="').concat(esc(a.id), '" aria-label="Play ').concat(esc(a.name), ', shuffled">').concat(icon("play"), 'Play</button>\n          <button class="hero-radio" data-act="radio-artist" data-id="').concat(esc(a.id), '">').concat(icon("radio"), 'Radio</button>\n        </div>\n      </div>\n      <div class="profile-photo">').concat(heroSrc ? '<img src="'.concat(esc(heroSrc), '" alt="">') : "", '</div>\n    </header>\n    <div class="profile-cols"><div id="artist-bio"></div><div id="artist-top"></div></div>\n    ').concat(disco, '\n    <div id="artist-similar"></div>');
   applyTint($(".profile", main), API.cover(a.coverArt || ((_a = list[0]) == null ? void 0 : _a.coverArt), 300));
   API.call("getTopSongs", { artist: a.name, count: 10 }, { cache: 30 * MIN }).then((t) => {
     var _a2;
@@ -1954,6 +1955,7 @@ const UI = {
       a.classList.toggle("active", !!active);
     });
     main.scrollTop = 0;
+    this.backButton(r, main);
     const path = r.name + "/" + (r.id || "");
     const turned = path !== this.lastPath;
     this.lastPath = path;
@@ -1992,6 +1994,7 @@ const UI = {
     }
     try {
       await p;
+      this.backButton(r, main, true);
     } catch (e) {
       if (e.code === 40 || e.code === 41) {
         this.logout();
@@ -1999,6 +2002,19 @@ const UI = {
       }
       main.innerHTML = '<div class="empty"><h3>Couldn\'t load this page</h3><p>'.concat(esc(e.message), '</p><button class="btn" data-act="reload">Try again</button></div>');
     }
+  },
+  // Phone: a back arrow on every page that isn't one of the three tabs. Pages that open with a colour header to the
+  // top edge (album, artist, playlist) carry it on that header; the others make room for it above their title.
+  trail: [location.hash],
+  backButton(r, main, drawn) {
+    const b = $(".back-btn"), app = $(".app");
+    if (!b || !app) return;
+    const root = ["home", "library", "search"].includes(r.name);
+    b.hidden = root;
+    const first = drawn && main.firstElementChild;
+    const bleeds = first ? parseFloat(getComputedStyle(first).marginTop) < 0 : ["album", "artist", "playlist", "lb"].includes(r.name);
+    app.classList.toggle("back-pad", !root && !bleeds);
+    app.classList.toggle("back-away", false);
   },
   syncPlayer() {
     var _a;
@@ -2152,7 +2168,7 @@ const actions = {
     Player.playList(songs, 0, { shuffle: true });
   },
   "play-artist": async (el) => {
-    toast("Starting artist shuffle\u2026");
+    toast("Playing this artist, shuffled\u2026");
     Player.playList(await artistSongs(el.dataset.id), 0, { shuffle: true });
   },
   "play-playlist": async (el) => {
@@ -2219,6 +2235,11 @@ const actions = {
   "open-np": () => UI.openNP("art"),
   "open-queue": () => UI.openNP("queue"),
   "close-np": () => UI.closeNP(),
+  // Phone: the arrow at the top left. Back through the pages opened in this visit; with none, up to the Library.
+  back: () => {
+    if (UI.trail.length > 1) history.back();
+    else location.hash = "#/library";
+  },
   "np-view": (el) => UI.setNPView(el.dataset.view),
   jump: (el) => Player.jump(+el.dataset.i),
   "q-remove": (el) => Player.removeAt(+el.dataset.i),
@@ -2326,6 +2347,9 @@ window.addEventListener("hashchange", () => {
   if (!$("#np").hidden) {
     $("#np").hidden = true;
   }
+  const t = UI.trail, h = location.hash;
+  if (t.length > 1 && t[t.length - 2] === h) t.pop();
+  else if (t[t.length - 1] !== h) t.push(h);
   UI.render();
 });
 window.addEventListener("popstate", (e) => {
@@ -2333,7 +2357,11 @@ window.addEventListener("popstate", (e) => {
   if (!((_a = e.state) == null ? void 0 : _a.np)) UI.closeNP(true);
 });
 window.addEventListener("resize", () => Menu.close());
-$("#main").addEventListener("scroll", () => Menu.close(), { passive: true });
+$("#main").addEventListener("scroll", () => {
+  Menu.close();
+  const away = $("#main").scrollTop > 48, app = $(".app");
+  if (app && app.classList.contains("back-away") !== away) app.classList.toggle("back-away", away);
+}, { passive: true });
 (() => {
   const np = $("#np");
   let y0 = null, dy = 0;
@@ -2390,6 +2418,9 @@ function start() {
   paintIcons();
   $$(".np-close").forEach((b) => {
     b.innerHTML = icon("down");
+  });
+  $$(".back-btn").forEach((b) => {
+    b.innerHTML = icon("back");
   });
   $$(".np-more").forEach((b) => {
     b.innerHTML = icon("more");

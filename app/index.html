@@ -16,7 +16,7 @@
   <script>
     // Old iPhones (iOS 12, e.g. iPhone 6) can't read the app's newer code: they get the older-style copy in legacy/,
     // which build/build.sh writes. Written in old-style JavaScript on purpose. ?v= keeps proxies from serving old files.
-    var MARE_V = '1.8.2', MARE_DIR = '';
+    var MARE_V = '1.8.3', MARE_DIR = '';
     try { if (localStorage.getItem('mare.forceLegacy')) throw 0; new Function('var a; return a?.b ?? (a ||= 1)'); } catch (e) { MARE_DIR = 'legacy/'; }
     document.write('<link rel="stylesheet" href="' + MARE_DIR + 'app.css?v=' + MARE_V + '">');
   </script>
@@ -59,6 +59,7 @@
       <a class="side-logout" href="#/settings" data-nav="settings"><span class="ico" data-icon="settings"></span>Settings</a>
     </aside>
 
+    <button class="back-btn" data-act="back" aria-label="Back" hidden></button>
     <main class="main" id="main" tabindex="-1"></main>
 
     <footer class="player" id="player" aria-label="Player">
@@ -110,7 +111,7 @@
           <button class="np-tab" data-act="np-view" data-view="lyrics">Lyrics</button>
           <button class="np-tab" data-act="np-view" data-view="queue">Up Next</button>
         </div>
-        <button class="icon-btn np-more" data-act="menu-current" aria-label="More"></button>
+        <span class="np-top-space"></span>
       </header>
       <div class="np-body">
         <div class="np-art-wrap"><img class="np-art" alt=""></div>

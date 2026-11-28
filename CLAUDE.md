@@ -422,6 +422,21 @@ uses `LANG=C.UTF-8` to avoid locale noise.
   → Wikidata coordinates). Agreed order: two measurements first in the owner's browser (how many artists have a city on
   MusicBrainz; a sample of hi-res albums checked for upsampling), then the server program with the globe lookups only,
   then the rest. Each needs its plan + go-ahead.
+- **1.8.3** (the four audit questions the owner said to go ahead with, as recommended): **Back arrow on phones**
+  (`.back-btn` in index.html, `UI.backButton()` called from `UI.render`): shown on every page except home / library /
+  search; fixed at the top left, fades out once the page is scrolled 48 px (`.app.back-away`). Pages whose first element
+  bleeds to the top edge (negative top margin: album, artist, playlist, lb) carry it on the colour header; the others get
+  `.app.back-pad` (title moved down 54 px). `UI.trail` follows the pages opened in this visit (hashchange: pop when the
+  new hash is the one before last, else push); the `back` action is `history.back()` when the trail has more than one
+  entry, else `#/library`. The Collection lists' own "Collection" button is hidden on phones. **One button order**:
+  album = Play, Shuffle, Favorite (`.btn-fav`, now framed), Download (inserted before the "…" by extras.js), "…"
+  (`.btn.btn-more`); playlist = Play, Shuffle, Download, "…". **Artist page**: the hero button says "Play" (it still
+  plays the artist shuffled; toast says so). **Now Playing**: the top-right "…" is gone (a spacer keeps the tabs
+  centred); the one beside the heart stays, on computers too. Also: the offline notice spans the screen on phones (it
+  was a narrow box with its text in four lines); "Save as Playlist" is one button text again on computers.
+  Found by test_legacy failing in Firefox only: on touch screens the artist link in a song row's second line
+  (`.t-sub a`) sat at the row's centre and took the tap, opening the artist instead of playing; it no longer takes taps
+  there (`.touch .track .t-sub a { pointer-events: none }`), "…" > Go to Artist remains.
 
 ## Roadmap (agreed with the owner; each needs a plan + go-ahead first)
 

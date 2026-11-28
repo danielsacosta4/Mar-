@@ -1045,8 +1045,16 @@ a.detail-artist:hover {
 .sleeve-back .detail-actions .btn:hover {
   color: var(--bg);
 }
-.sleeve-back .detail-actions .btn-ghost.on {
+.sleeve-back .detail-actions .btn-ghost.on,
+.sleeve-back .detail-actions .btn-fav.on {
   color: var(--accent);
+}
+.btn-more {
+  padding: 0 11px;
+}
+.btn-more svg {
+  width: 18px;
+  height: 18px;
 }
 .sides {
   display: grid;
@@ -1147,18 +1155,21 @@ a.detail-artist:hover {
   mix-blend-mode: normal;
 }
 .hero-play {
-  width: 48px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   height: 48px;
-  display: grid;
-  place-items: center;
+  padding: 0 20px 0 16px;
   flex: none;
+  font: 700 12.5px var(--font);
+  text-transform: uppercase;
+  letter-spacing: .1em;
   background: rgb(var(--on-tint));
   color: rgb(var(--tint));
 }
 .hero-play svg {
-  width: 20px;
-  height: 20px;
-  margin-left: 3px;
+  width: 16px;
+  height: 16px;
 }
 .hero-play:hover {
   background: var(--accent);
@@ -3510,6 +3521,17 @@ input[type=range]:hover::-moz-range-thumb {
     width: 22px;
     height: 22px;
   }
+  .detail-actions .btn-fav,
+  .detail-actions .btn-more {
+    flex: none;
+    font-size: 0;
+    gap: 0;
+    padding: 0 12px;
+  }
+  .detail-actions .btn-fav svg {
+    width: 20px;
+    height: 20px;
+  }
   .detail-actions .btn-dl {
     flex: none;
     font-size: 0;
@@ -4202,6 +4224,10 @@ input[type=range]:hover::-moz-range-thumb {
   bottom: -7px;
   left: -7px;
 }
+.touch .track .t-sub a,
+.touch .q-item .t-sub a {
+  pointer-events: none;
+}
 .touch .section-head a::after,
 .touch .head-links a::after {
   top: -15px;
@@ -4275,6 +4301,62 @@ input[type=range]:hover::-moz-range-thumb {
 @media (max-width: 760px) {
   .q-long {
     display: none;
+  }
+}
+.np-top-space {
+  width: 36px;
+  flex: none;
+}
+.back-btn {
+  display: none;
+}
+@media (max-width: 760px) {
+  .back-btn {
+    display: grid;
+    place-items: center;
+    position: fixed;
+    z-index: 3;
+    left: 12px;
+    top: max(10px, env(safe-area-inset-top));
+    width: 40px;
+    height: 40px;
+    background: var(--bg);
+    color: var(--ink);
+    border: 2px solid var(--rule);
+    transition: opacity .15s;
+  }
+  .back-btn svg {
+    width: 20px;
+    height: 20px;
+  }
+  .back-btn::after {
+    content: "";
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    bottom: -4px;
+    left: -4px;
+  }
+  .app.back-away .back-btn {
+    opacity: 0;
+    pointer-events: none;
+  }
+  .app.back-pad .main {
+    padding-top: calc(max(10px, env(safe-area-inset-top)) + 54px);
+  }
+  .page-head a.btn[href="#/collection"] {
+    display: none;
+  }
+  .offline-bar {
+    left: 16px;
+    right: 16px;
+    transform: none;
+  }
+  .offline-bar a {
+    margin-left: auto;
+  }
+  .offline-bar .ob-close {
+    padding: 8px 4px 8px 12px;
   }
 }
 

@@ -21,7 +21,7 @@ set -Eeuo pipefail
 export LANG=C.UTF-8 LC_ALL=C.UTF-8
 unset LANGUAGE
 
-MARE_VERSION="1.8.2"
+MARE_VERSION="1.8.3"
 TAG="mare"
 # Where the app comes from: the repository as a tarball (override for testing).
 # To go back to an earlier release, set MARE_REF to that release's commit (listed with every release):

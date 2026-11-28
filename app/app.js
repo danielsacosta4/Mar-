@@ -1,6 +1,6 @@
 /* Maré — a Navidrome (Subsonic / OpenSubsonic) web client. */
 'use strict';
-window.MARE_VERSION = '1.8.2';
+window.MARE_VERSION = '1.8.3';
 
 /* ================= Utilities ================= */
 
@@ -111,6 +111,7 @@ const STROKE = {
   volume: '<path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/>',
   volumeLow: '<path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/>',
   down: '<path d="m6 9 6 6 6-6"/>',
+  back: '<path d="m15 5-7 7 7 7"/>',
   logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/>',
   playNext: '<path d="M3 6h12M3 12h8M3 18h8"/><path d="m15 13 6 3.5-6 3.5z"/>',
   addQueue: '<path d="M3 6h14M3 12h10M3 18h7"/><path d="M18 14v7M14.5 17.5h7"/>',
@@ -1383,8 +1384,8 @@ View.album = async (main, params, id) => {
         <div class="detail-actions">
           <button class="btn btn-primary" data-act="play-album" data-id="${esc(a.id)}">${icon('play')}Play</button>
           <button class="btn" data-act="shuffle-album" data-id="${esc(a.id)}">${icon('shuffle')}Shuffle</button>
-          <button class="btn btn-ghost${starred ? ' on' : ''}" data-act="star-album" data-id="${esc(a.id)}">${heartIcon(starred)}${starred ? 'Favorited' : 'Favorite'}</button>
-          <button class="icon-btn" data-act="menu-album" data-id="${esc(a.id)}" aria-label="More">${icon('more')}</button>
+          <button class="btn btn-fav${starred ? ' on' : ''}" data-act="star-album" data-id="${esc(a.id)}">${heartIcon(starred)}${starred ? 'Favorited' : 'Favorite'}</button>
+          <button class="btn btn-more" data-act="menu-album" data-id="${esc(a.id)}" aria-label="More">${icon('more')}</button>
         </div>
         ${trackRows(songs, { sides: true })}
         <p class="album-foot">${plural(songs.length, 'song')}, ${fmtLong(total)}${a.playCount ? ` · you've played it ${plural(a.playCount, 'time')}` : ''}${a.played ? `, last on ${esc(new Date(a.played).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' }))}` : ''}</p>
@@ -1479,7 +1480,7 @@ View.artist = async (main, params, id) => {
         <div class="detail-kicker">Artist · ${plural(list.length, 'album')}</div>
         <h1>${esc(a.name)}</h1>
         <div class="profile-acts">
-          <button class="hero-play" data-act="play-artist" data-id="${esc(a.id)}" aria-label="Shuffle ${esc(a.name)}">${icon('play')}</button>
+          <button class="hero-play" data-act="play-artist" data-id="${esc(a.id)}" aria-label="Play ${esc(a.name)}, shuffled">${icon('play')}Play</button>
           <button class="hero-radio" data-act="radio-artist" data-id="${esc(a.id)}">${icon('radio')}Radio</button>
         </div>
       </div>
@@ -1714,6 +1715,7 @@ const UI = {
       a.classList.toggle('active', !!active);
     });
     main.scrollTop = 0;
+    this.backButton(r, main);
     // Page turn: a short slide when the page changes (not when the same page refreshes).
     const path = r.name + '/' + (r.id || '');
     const turned = path !== this.lastPath;
@@ -1739,11 +1741,25 @@ const UI = {
       if (turned) { main.classList.remove('turn'); void main.offsetWidth; main.classList.add('turn'); }
       start();
     }
-    try { await p; }
+    try { await p; this.backButton(r, main, true); }
     catch (e) {
       if (e.code === 40 || e.code === 41) { this.logout(); return; }
       main.innerHTML = `<div class="empty"><h3>Couldn't load this page</h3><p>${esc(e.message)}</p><button class="btn" data-act="reload">Try again</button></div>`;
     }
+  },
+
+  // Phone: a back arrow on every page that isn't one of the three tabs. Pages that open with a colour header to the
+  // top edge (album, artist, playlist) carry it on that header; the others make room for it above their title.
+  trail: [location.hash],
+  backButton(r, main, drawn) {
+    const b = $('.back-btn'), app = $('.app');
+    if (!b || !app) return;
+    const root = ['home', 'library', 'search'].includes(r.name);
+    b.hidden = root;
+    const first = drawn && main.firstElementChild;
+    const bleeds = first ? parseFloat(getComputedStyle(first).marginTop) < 0 : ['album', 'artist', 'playlist', 'lb'].includes(r.name);
+    app.classList.toggle('back-pad', !root && !bleeds);
+    app.classList.toggle('back-away', false);
   },
 
   syncPlayer() {
@@ -1863,7 +1879,7 @@ const actions = {
   },
   'play-album': async (el) => { const { songs } = await albumSongs(el.dataset.id); Player.playList(songs, 0, { shuffle: false }); },
   'shuffle-album': async (el) => { const { songs } = await albumSongs(el.dataset.id); Player.playList(songs, 0, { shuffle: true }); },
-  'play-artist': async (el) => { toast('Starting artist shuffle…'); Player.playList(await artistSongs(el.dataset.id), 0, { shuffle: true }); },
+  'play-artist': async (el) => { toast('Playing this artist, shuffled…'); Player.playList(await artistSongs(el.dataset.id), 0, { shuffle: true }); },
   'play-playlist': async (el) => { Player.playList(await playlistSongs(el.dataset.id), 0, { shuffle: false }); },
   'shuffle-playlist': async (el) => { Player.playList(await playlistSongs(el.dataset.id), 0, { shuffle: true }); },
   // Endless: a "radio" of the whole library that keeps refilling, skips what this session already played, keeps
@@ -1903,6 +1919,8 @@ const actions = {
   'open-np': () => UI.openNP('art'),
   'open-queue': () => UI.openNP('queue'),
   'close-np': () => UI.closeNP(),
+  // Phone: the arrow at the top left. Back through the pages opened in this visit; with none, up to the Library.
+  back: () => { if (UI.trail.length > 1) history.back(); else location.hash = '#/library'; },
   'np-view': (el) => UI.setNPView(el.dataset.view),
   jump: (el) => Player.jump(+el.dataset.i),
   'q-remove': (el) => Player.removeAt(+el.dataset.i),
@@ -1984,11 +2002,19 @@ $('#side-search input').addEventListener('input', debounce((e) => {
 
 window.addEventListener('hashchange', () => {
   if (!$('#np').hidden) { $('#np').hidden = true; }
+  // The pages opened in this visit, so the back arrow knows whether there is anything to go back to.
+  const t = UI.trail, h = location.hash;
+  if (t.length > 1 && t[t.length - 2] === h) t.pop(); else if (t[t.length - 1] !== h) t.push(h);
   UI.render();
 });
 window.addEventListener('popstate', (e) => { if (!e.state?.np) UI.closeNP(true); });
 window.addEventListener('resize', () => Menu.close());
-$('#main').addEventListener('scroll', () => Menu.close(), { passive: true });
+$('#main').addEventListener('scroll', () => {
+  Menu.close();
+  // The back arrow belongs to the top of a page: it steps aside while the page is scrolled.
+  const away = $('#main').scrollTop > 48, app = $('.app');
+  if (app && app.classList.contains('back-away') !== away) app.classList.toggle('back-away', away);
+}, { passive: true });
 
 /* Swipe down to close Now Playing on touch screens */
 (() => {
@@ -2044,6 +2070,7 @@ function start() {
   $('#app').hidden = false;
   paintIcons();
   $$('.np-close').forEach((b) => { b.innerHTML = icon('down'); });
+  $$('.back-btn').forEach((b) => { b.innerHTML = icon('back'); });
   $$('.np-more').forEach((b) => { b.innerHTML = icon('more'); });
   $$('[data-act="prev"]').forEach((b) => { b.innerHTML = icon('prev'); });
   $$('[data-act="next"]').forEach((b) => { b.innerHTML = icon('next'); });
