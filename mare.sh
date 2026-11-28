@@ -101,7 +101,10 @@ caddyfile() {   # caddyfile NAVIDROME_URL
 	handle /rest/* {${rewrite}
 		reverse_proxy ${scheme}://${hostport} {
 			flush_interval -1
-			header_up Host {upstream_hostport}${tls}
+			header_up Host {upstream_hostport}
+			# Maré itself is reached over plain http (from the proxy in front of it). Passed on, that reads as "this
+			# request began insecure", and a proxy in front of Navidrome then answers every call with a redirect.
+			header_up X-Forwarded-Proto ${scheme}${tls}
 		}
 	}
 

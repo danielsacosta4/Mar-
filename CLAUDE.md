@@ -406,6 +406,14 @@ uses `LANG=C.UTF-8` to avoid locale noise.
   stays for progress); the Now Playing quality label ends in "…" before it reaches the times; "Save as Playlist" is
   "Save" on phones. Audit findings left to the owner: two "…" in Now Playing, button order on album vs playlist pages,
   unlabelled Play on artist pages, no back button outside the Collection lists.
+  **Outage, 28 Nov 2026 (in this release):** Maré loaded but every `/rest/*` call hung, later answered `301` to
+  `https://navidrome.servidorcasinha.com:443/...`. The owner's NPMplus now redirects any request carrying
+  `X-Forwarded-Proto: http`, and Caddy (reached over plain http from NPMplus) passed exactly that on to the Navidrome
+  proxy host. `caddyfile()` now sets `header_up X-Forwarded-Proto <scheme of the Navidrome address>`. Proven with curl
+  against the real proxy (http → 301, https → 200) and with Caddy 2.6.2 against a local echo server. The installer's
+  "Navidrome answers" check uses curl from the container, not Caddy, so it said yes while the app was down. Checking
+  the owner's server from the sandbox: the environment allows `music.servidorcasinha.com` (Maré) and
+  `navidrome.servidorcasinha.com`; `/update.json`, `/app.js` and `/rest/ping.view?f=json` tell most of the story.
   **The owner's open list:** occasional stop on the iPhone (needs their Copy diagnostics); Audio analysis (server side:
   a program in the container measuring real bandwidth / bit depth / dynamic range, Settings switch "Audio analysis",
   words native / upsampled / padded, lines on the album spec sheet, "Upsampled" tile + chart shading on Collection);
