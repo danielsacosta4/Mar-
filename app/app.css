@@ -1123,7 +1123,7 @@ input[type="range"]:hover::-moz-range-thumb { opacity: 1; }
     border-top: 3px solid transparent; margin-top: -3px;
   }
   .tabbar .ico { width: 22px; height: 22px; }
-  .tabbar a.active { color: var(--ink); border-top-color: var(--accent); }
+  .tabbar a.active { color: var(--ink); border-top-color: var(--rule); box-shadow: inset 0 3px 0 var(--rule); }
   .toast { bottom: calc(var(--player-h) + 76px + env(safe-area-inset-bottom)); }
   .np-big { width: 56px; height: 56px; }
   .np .np-play { width: 68px; height: 68px; }
@@ -1194,3 +1194,44 @@ input[type="range"]:hover::-moz-range-thumb { opacity: 1; }
 .atlas-count { font: 800 22px/1 var(--font-display); font-stretch: 62%; font-variant-numeric: tabular-nums; }
 .atlas-rank .btn-link { margin-top: 10px; }
 @media (max-width: 900px) { .atlas-grid { grid-template-columns: minmax(0, 1fr); gap: 20px; } .atlas-globe { max-width: 460px; margin: 0 auto; width: 100%; } }
+
+/* ---------- 1.8.2: phones and tablets ---------- */
+/* iPhone and iPad don't let a page set the volume: no bar that does nothing (Player.init sets .vol-locked). */
+.vol-locked .np-volume, .vol-locked .p-right .volume, .vol-locked .vol-ico { display: none; }
+
+/* Now Playing: the quality label gives way (…) before it reaches the times. */
+.np-times > .p-cur, .np-times > .p-dur { flex: none; }
+.np-times .np-quality { display: block; flex: 0 1 auto; min-width: 0; margin: 0 10px; line-height: 18px; overflow: hidden; text-overflow: ellipsis; }
+.np-times .np-quality svg { vertical-align: -1px; margin-right: 5px; }
+
+/* Touch screens (.touch, set by Player.init): a long press opens Maré's menus, so nothing is selectable except what
+   is there to be read. */
+.touch body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.touch input, .touch textarea, .touch .np-lyrics, .touch .liner, .touch .liner-notes, .touch .bio, .touch .profile-text,
+.touch .credits, .touch .spec, .touch .playlog, .touch .diag-text, .touch .set-row p, .touch .sheet p { -webkit-user-select: text; user-select: text; }
+
+/* Touch screens: small things keep their look and get a thumb-sized (44 px) area around them. */
+.touch .t-more, .touch .section-head a, .touch .head-links a, .touch .star, .touch .np .icon-btn, .touch .detail-actions .icon-btn,
+.touch .np-tab, .touch .q-btn, .touch .miss-btn { position: relative; }
+.touch .t-more::after, .touch .section-head a::after, .touch .head-links a::after, .touch .star::after, .touch .np .icon-btn::after,
+.touch .detail-actions .icon-btn::after, .touch .np-tab::after, .touch .q-btn::after, .touch .miss-btn::after { content: ""; position: absolute; }
+.touch .t-more::after { inset: -7px; }
+.touch .section-head a::after, .touch .head-links a::after { inset: -15px -6px -14px; }
+.touch .star::after { inset: -7px 0; }
+.touch .np .icon-btn::after, .touch .detail-actions .icon-btn::after { inset: -4px; }
+.touch .np-tab::after { inset: -6px -8px; }
+.touch .q-btn::after { inset: -7px 0; }
+.touch .miss-acts { gap: 10px; }
+.touch .miss-btn { height: 34px; padding: 0 12px; }
+.touch .miss-btn::after { inset: -5px 0; }
+.touch .menu button { height: 44px; }
+.touch .menu .menu-stars .star { width: 40px; height: 44px; }
+.touch .menu .menu-stars .star::after { display: none; }
+.touch .stars .star { width: 36px; }
+.touch .art-play::after { content: ""; position: absolute; inset: -5px; }
+/* The progress bar in Now Playing: same thin line, twice the height to put a finger on. */
+.touch .np-scrub { height: 36px; margin: -9px 0; }
+
+@media (max-width: 760px) {
+  .q-long { display: none; }   /* Up Next: "Save" fits beside the heading, "Save as Playlist" doesn't */
+}

@@ -1,6 +1,6 @@
 /* Maré — a Navidrome (Subsonic / OpenSubsonic) web client. */
 'use strict';
-window.MARE_VERSION = '1.8.1';
+window.MARE_VERSION = '1.8.2';
 
 /* ================= Utilities ================= */
 
@@ -548,14 +548,30 @@ const Player = {
   init() {
     // iOS doesn't let pages change an element's volume; crossfade and levelling need it.
     try { const t = new Audio(); t.volume = 0.5; this.volLocked = t.volume !== 0.5; } catch { this.volLocked = true; }
+    // Phones and tablets get thumb-sized touch areas and no text selection (".touch" in app.css); iPhone and iPad also
+    // lose the controls that can't work there, like the volume bar (".vol-locked").
+    const root = document.documentElement;
+    root.classList.toggle('vol-locked', this.volLocked);
+    root.classList.toggle('touch', this.volLocked || !!(window.matchMedia && matchMedia('(pointer: coarse)').matches));
     // iOS 17+: say this is a music player, so the sound keeps working on the lock screen (like a music app).
     try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch { /* unsupported */ }
     // Unlocking while "playing" with the sound cut off: reconnect it.
     // Unlocked after a nudge on the lock screen (or with the sound reported off): now a full reload is allowed.
     document.addEventListener('visibilitychange', () => {
-      if (document.hidden || !this.volLocked || this.audio.paused) return;
+      if (document.hidden || !this.volLocked) return;
+      // Back on screen after a call that iOS didn't let us resume from the lock screen (or never told us had ended).
+      if (this.resumeOnShow || (this.interrupted && navigator.audioSession?.state !== 'interrupted')) { this.afterInterruption(true); return; }
+      if (this.audio.paused) return;
       if (this.lockedNudge) { this.lastReload = 0; this.refresh('back on screen after headphones, reconnecting'); }
       else if (this.sessionOff()) this.refresh('sound was off after unlocking, reconnecting');
+    });
+    // A phone call (or Siri, an alarm) takes the sound away and iOS pauses the player. A music app is started again
+    // afterwards; a web page isn't. So remember that the phone stopped it, and carry on when the phone says it's over.
+    const session = navigator.audioSession;
+    if (session && session.addEventListener && this.volLocked) session.addEventListener('statechange', () => {
+      if (session.state === 'interrupted') {
+        if (!this.audio.paused || (this.sysPaused && Date.now() - (this.sysAt || 0) < 3000)) this.interrupt();
+      } else if (this.interrupted) this.afterInterruption();
     });
     this.els.forEach((el) => {
       el.preload = 'auto'; el._fade = 1;
@@ -568,7 +584,10 @@ const Player = {
       }));
       el.addEventListener('pause', mine(() => {
         this.sync(); this.persist();
-        if (this.volLocked && !el.ended && Date.now() - (this.ownPause || 0) > 800) { this.sysPaused = true; this.note('paused by headphones or system'); }
+        if (this.volLocked && !el.ended && Date.now() - (this.ownPause || 0) > 800) {
+          this.sysPaused = true; this.sysAt = Date.now(); this.note('paused by headphones or system');
+          if (navigator.audioSession?.state === 'interrupted') this.interrupt();
+        }
       }));
       el.addEventListener('playing', mine(() => this.onPlaying()));
       // Diagnostics for the locked iPhone: what the player goes through while the screen is off.
@@ -809,8 +828,34 @@ const Player = {
 
   toggle() {
     if (!this.current()) return;
+    this.interrupted = 0; this.resumeOnShow = false;   // the listener took over: nothing resumes by itself after this
     if (this.audio.paused) { this.sysPaused = false; this.audio.play().catch(() => {}); }
     else { this.ownPause = Date.now(); this.stopFade(); this.audio.pause(); }
+  },
+
+  // iPhone: the sound was taken by a call, Siri or an alarm while a song was playing.
+  interrupt() {
+    if (this.interrupted) return;
+    this.interrupted = Date.now(); this.resumeOnShow = false;
+    this.note(`interrupted by a call or another app (${document.hidden ? 'locked' : 'open'})`);
+  },
+  // ...and it's over: carry on where the song stopped. Not when it was long ago (music starting by itself an hour
+  // later is a surprise, not a favour), and not when iOS has already started it again.
+  afterInterruption(shown) {
+    const at = this.interrupted || Date.now(), since = Date.now() - at;
+    this.interrupted = 0; this.resumeOnShow = false;
+    if (!this.current() || !this.audio.paused) return;
+    if (since > 15 * MIN) { this.note('the interruption ended after more than 15 min: staying paused'); return; }
+    this.sysPaused = false; this.lastReload = 0;
+    this.refresh(shown ? 'resumed after a call, back on screen' : 'resumed after a call');
+    // iOS may refuse to start sound for a page that isn't on screen: then the moment Maré is shown again.
+    clearTimeout(this._callCheck);
+    this._callCheck = setTimeout(() => {
+      if (!this.audio.paused || !this.current()) return;
+      this.note(`couldn't start by itself after the call (${document.hidden ? 'locked' : 'open'})`);
+      // (the 15 minutes keep counting from when the call began, so opening Maré hours later starts nothing)
+      if (document.hidden) { this.resumeOnShow = true; this.interrupted = at; this.sysPaused = true; }
+    }, 2500);
   },
 
   // Reload the playing song at the same point and keep playing (reconnects iOS audio after a headphone resume).
@@ -1033,13 +1078,14 @@ const Player = {
     const h = {
       play: () => {
         if (this.volLocked) this.note(`lock screen / headphones: play (${document.hidden ? 'locked' : 'open'})`);
+        this.interrupted = 0; this.resumeOnShow = false;
         if (this.sysPaused && this.volLocked) { this.sysPaused = false; this.refresh('resumed after headphones'); } else this.audio.play();
       },
       // Locked iPhone: taking an earbud out arrives here (not as a plain pause), so treat it like the headphone pause
       // and reconnect the sound on the next play. A lock-screen pause tap gets the same harmless reload.
       pause: () => {
         this.ownPause = Date.now(); this.stopFade(); this.audio.pause();
-        if (this.volLocked) { this.sysPaused = true; this.note(`paused from lock screen or headphones (${document.hidden ? 'locked' : 'open'})`); }
+        if (this.volLocked) { this.sysPaused = true; this.sysAt = Date.now(); this.note(`paused from lock screen or headphones (${document.hidden ? 'locked' : 'open'})`); }
       },
       previoustrack: () => this.prev(), nexttrack: () => this.next(false, 'headset / media key'),
       seekto: (e) => { if (e.seekTime != null) this.seek(e.seekTime); },
@@ -1662,8 +1708,8 @@ const UI = {
     const main = $('#main');
     $$('[data-nav]').forEach((a) => {
       const n = a.dataset.nav;
-      const libNames = ['albums', 'artists', 'songs', 'playlists', 'playlist', 'favorites', 'library', 'album', 'artist'];
-      const active = n === r.name || (n === 'library' && libNames.includes(r.name) && a.closest('.tabbar'))
+      // Phone tabs: everything that isn't Home or Search belongs to the Library (it is where all of it is listed).
+      const active = n === r.name || (n === 'library' && !['home', 'search'].includes(r.name) && a.closest('.tabbar'))
         || (n === 'playlists' && r.name === 'playlist') || (n === 'albums' && r.name === 'album' && !a.closest('.tabbar')) || (n === 'artists' && r.name === 'artist' && !a.closest('.tabbar'));
       a.classList.toggle('active', !!active);
     });

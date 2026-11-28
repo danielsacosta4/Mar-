@@ -17,8 +17,9 @@ interface and Spotify-style discovery built on **ListenBrainz**. It is a persona
 - **Navidrome** (latest, 0.6x) runs as an app on a **TrueNAS** VM (VM 102) on the same host.
 - **NPMplus** (LXC 114) is the reverse proxy; HTTPS domain `*.servidorcasinha.com`.
 - Maré runs in its own **Debian LXC tagged `mare`**, created by `mare.sh`; it serves the app with **Caddy** on port 80.
-  NPMplus points a subdomain at it. Navidrome itself is reached by Caddy (the owner chose the public
-  `https://navidrome.servidorcasinha.com` address; the LAN `ip:port` is also supported).
+  NPMplus points a subdomain at it (`music.servidorcasinha.com`; the container is 107, `192.168.1.79` by DHCP).
+  Navidrome itself is reached by Caddy at its LAN `ip:port` since 28 Nov 2026 (before that the public
+  `https://navidrome.servidorcasinha.com`, which broke when NPMplus began redirecting; see History 1.8.2).
 - Music library: mostly **Qobuz downloads** (FLAC, often 24-bit hi-res). Files usually have **no MusicBrainz IDs**
   and **no ReplayGain tags**, so matching is done by artist + title, and volume levelling needs tags to be added
   (suggested: rsgain; not done yet).
@@ -61,7 +62,7 @@ test/
   mock_server.py  Mock Navidrome (/rest) + ListenBrainz (/lb/1) + static files, port 8765. User demo / secret
   test_*.py       Playwright browser tests (desktop + mobile, light + dark); screenshots to test-output/
                   (core, discovery, round3 = playlists/downloads/offline, round4 = collection + ratings + player bar,
-                  round5 = shopping list + time machine, round6 = Moments, round7 = front page cache + play counts + ratings sync, round8 = iPhone player (tap-to-seek, reload position, ahead copies offline), round9 = three dots + shuffle + globe, mobile = long phone session (stops, skips, long tasks), legacy = the iOS 12 copy; the mock also answers /mb/* like MusicBrainz)
+                  round5 = shopping list + time machine, round6 = Moments, round7 = front page cache + play counts + ratings sync, round8 = iPhone player (tap-to-seek, reload position, ahead copies offline), round9 = three dots + shuffle + globe, round10 = iPhone after a call + phone audit fixes, mobile = long phone session (stops, skips, long tasks), legacy = the iOS 12 copy; the mock also answers /mb/* like MusicBrainz)
   browser.py      Picks the browser for every suite: MARE_BROWSER=chromium (default; finds /opt/pw-browsers/chromium by
                   itself), firefox (the owner's desktop browser) or webkit (Safari's engine). Install with
                   `pip install playwright==1.65.2`, `playwright install webkit firefox`, `playwright install-deps webkit`
@@ -77,6 +78,9 @@ test/
                   Run it in all three browsers before a release that touches playback.
   test_streams.py Same idea against an IMITATION of Navidrome's streaming in the mock (`/__navi?1`). Runs anywhere, but
                   it is an imitation: its MP3 stream fails in WebKit-Linux while the real one plays.
+  audit_phone.py  Not a pass/fail suite: walks every screen at phone size (AUDIT_SIZE=375x667, AUDIT_SCHEME=dark,
+                  MARE_BROWSER=webkit) and prints what is off screen, cut off, selectable, tiny or smaller than a thumb
+                  (touch areas made with ::after count), saving a screenshot of each page top and bottom. Needs the mock.
   run.sh          Starts the mock and runs all suites
   fakepve/        Fake pct/pveam/pvesh/pvesm/systemctl to exercise mare.sh without Proxmox
 mare.sh         The built installer (~13 KB); this is what the owner's curl command downloads. Commit it with every release.
@@ -343,7 +347,8 @@ uses `LANG=C.UTF-8` to avoid locale noise.
   Firefox (Firefox's timing not counted). Not testable here: a locked iPhone, AirPods. Agreed acceptance on the owner's
   phone: 20 songs in a row locked without a stop; if still bad after a week of use, stop work on the iPhone version.
   **Result (owner, four days later, on the real iPhone): "1.7.0 has been working great". The iPhone version stays.**
-  AirPods with the phone locked hasn't been tried on 1.7.0 yet.
+  AirPods (owner, after 1.8.0): "working great" on 10–30 min walks. Whether an earbud taken out and put back with the phone
+  LOCKED brings the sound back (the 1.5.12–1.5.19 case) was not confirmed separately.
 - **1.8.0** "Maré updates itself": the owner can't have Claude run the update command (no route from a cloud session to
   their network), so the container updates itself. The host command now also installs `/usr/local/bin/mare-update` +
   `mare-update.service` / `.timer` (hourly, 2 min after boot). The bootstrap reads `/etc/mare.conf`, compares the
@@ -382,6 +387,41 @@ uses `LANG=C.UTF-8` to avoid locale noise.
   row of the ranked list; Intl.DisplayNames for names). Countries too small for the 110m map only appear in the list.
   iOS 12: no pointer events, so no dragging there. Sandbox environment "Mar-" now also allows musicbrainz.org.
   test_round9 covers all three.
+- **1.8.2** (phone only; from the owner's list and a full phone audit, report at claude.ai/artifact/MeCiu3SLjsWKwZJarwMYPR):
+  **After a call:** on `volLocked` devices `navigator.audioSession` `statechange` → `interrupted` while playing (or within
+  3 s of a system pause, `sysAt`) sets `Player.interrupted` (`interrupt()`); leaving that state calls `afterInterruption()`
+  = `refresh('resumed after a call')`; if still paused 2.5 s later while hidden, `resumeOnShow` makes the
+  `visibilitychange` handler do it when Maré is on screen (also when the page was frozen and never got the event). Not
+  after `toggle()` / lock-screen play (the listener took over), not after 15 min, not for a pause without an interruption
+  (earbuds). Log: "interrupted by a call or another app", "resumed after a call", "couldn't start by itself after the
+  call". Whether iOS sends the event to a locked web app is unknown: the owner's log decides.
+  **`.vol-locked` / `.touch` on `<html>`** (Player.init; touch = volLocked or `pointer: coarse`): no volume bars on
+  iPhone/iPad; Settings shows one line instead of Crossfade / Keep albums gapless / Volume levelling there; `.touch body`
+  is not selectable (reading text is: lyrics, liner notes, bios, credits, settings text, inputs); small controls keep
+  their look and get a 44 px area with `::after` (track "…", section-head links, stars, Now Playing buttons and tabs,
+  cover play buttons, Qobuz/Hide), menu lines are 44 px, the Now Playing progress bar is 36 px tall to the finger.
+  **Quality picker on iPhone** (`Quality.pick`): with songs saved ahead it lists and changes `phoneQuality` (Opus 128 /
+  MP3 320 / Original, streamed live; the last also sets streaming quality to original), dropping the old copies first and
+  moving a song playing from a copy to the live stream; `Ahead.run` no longer stores a copy fetched at the old quality.
+  **Also:** the phone tab bar lights Library for every page that isn't Home or Search, with a thick black marker (red
+  stays for progress); the Now Playing quality label ends in "…" before it reaches the times; "Save as Playlist" is
+  "Save" on phones. Audit findings left to the owner: two "…" in Now Playing, button order on album vs playlist pages,
+  unlabelled Play on artist pages, no back button outside the Collection lists.
+  **Outage, 28 Nov 2026 (in this release):** Maré loaded but every `/rest/*` call hung, later answered `301` to
+  `https://navidrome.servidorcasinha.com:443/...`. The owner's NPMplus now redirects any request carrying
+  `X-Forwarded-Proto: http`, and Caddy (reached over plain http from NPMplus) passed exactly that on to the Navidrome
+  proxy host. `caddyfile()` now sets `header_up X-Forwarded-Proto <scheme of the Navidrome address>`. Proven with curl
+  against the real proxy (http → 301, https → 200) and with Caddy 2.6.2 against a local echo server. The installer's
+  "Navidrome answers" check uses curl from the container, not Caddy, so it said yes while the app was down. Checking
+  the owner's server from the sandbox: the environment allows `music.servidorcasinha.com` (Maré) and
+  `navidrome.servidorcasinha.com`; `/update.json`, `/app.js` and `/rest/ping.view?f=json` tell most of the story.
+  **The owner's open list:** occasional stop on the iPhone (needs their Copy diagnostics); Audio analysis (server side:
+  a program in the container measuring real bandwidth / bit depth / dynamic range, Settings switch "Audio analysis",
+  words native / upsampled / padded, lines on the album spec sheet, "Upsampled" tile + chart shading on Collection);
+  globe lookups on the server; globe zoom into a country with artists placed where they formed (MusicBrainz begin-area
+  → Wikidata coordinates). Agreed order: two measurements first in the owner's browser (how many artists have a city on
+  MusicBrainz; a sample of hi-res albums checked for upsampling), then the server program with the globe lookups only,
+  then the rest. Each needs its plan + go-ahead.
 
 ## Roadmap (agreed with the owner; each needs a plan + go-ahead first)
 

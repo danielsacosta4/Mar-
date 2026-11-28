@@ -52,6 +52,7 @@ bash "$T/un/mare.sh" --apply "$T/un" >/dev/null 2>&1
 check "app is 5.0.0" '[[ $(appv) == 5.0.0 ]]'
 check "settings kept, version recorded" '[[ $(conf MARE_VERSION) == 5.0.0 && $(conf NAVIDROME) == http://127.0.0.1:4533 ]]'
 check "updater and timer installed, timer switched on" '[[ -x $UPD && -f $R/etc/systemd/system/mare-update.timer ]] && grep -q "enable -q --now mare-update.timer" "$T/calls.log"'
+check "Navidrome is told the scheme Maré really uses to reach it (a proxy in front of it redirects 'http' forever)" 'grep -q "header_up X-Forwarded-Proto http$" "$R/etc/caddy/Caddyfile"'
 check "server configuration changed -> one restart" '[[ $(grep -c "systemctl restart caddy" "$T/calls.log") == 1 ]]'
 check "status says updated" '[[ $(state) == updated ]]'
 
