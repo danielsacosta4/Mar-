@@ -509,7 +509,11 @@ function decorate(route) {
   const main = $('#main');
   if (route.name === 'album' && route.id) {
     const acts = $('.detail-actions', main);
-    if (acts && !$('[data-dl]', acts)) acts.insertAdjacentHTML('beforeend', Offline.button('album', route.id));
+    // One order on every page: Play, Shuffle, Favorite, Download, and "…" last.
+    if (acts && !$('[data-dl]', acts)) {
+      const more = $('[data-act="menu-album"]', acts);
+      if (more) more.insertAdjacentHTML('beforebegin', Offline.button('album', route.id)); else acts.insertAdjacentHTML('beforeend', Offline.button('album', route.id));
+    }
     const songs = Lists.get($('.tracks .track', main)?.dataset.list) || [];
     const q = albumQuality(songs);
     const meta = $('.detail-meta', main);
@@ -534,7 +538,7 @@ async function decoratePlaylist(main, id) {
   const owned = p.owner === API.user && !p.readonly;
   Playlists.current = owned ? p : null;
   if (!owned) return;
-  acts.insertAdjacentHTML('beforeend', `<button class="icon-btn" data-act="pl-menu" aria-label="Edit playlist">${icon('more')}</button>`);
+  acts.insertAdjacentHTML('beforeend', `<button class="btn btn-more" data-act="pl-menu" aria-label="Edit playlist">${icon('more')}</button>`);
   const tracks = $('.tracks', main);
   if (!tracks) return;
   tracks.classList.add('sortable');
@@ -586,7 +590,7 @@ songMenu = function (anchor, s) {
     if (!box || !Player.queue.length) return;
     const h = $('h3', box);
     if (h) h.outerHTML = `<div class="q-head"><h3>Up Next</h3><div>
-        <button class="q-btn" data-act="q-save">${icon('plus')}Save<span class="q-long">&nbsp;as Playlist</span></button>
+        <button class="q-btn" data-act="q-save">${icon('plus')}Save<span class="q-long">as Playlist</span></button>
         ${Player.index < Player.queue.length - 1 ? `<button class="q-btn" data-act="q-clear">Clear</button>` : ''}</div></div>`;
     $$('.q-item', box).forEach((row) => {
       const i = +row.dataset.i;

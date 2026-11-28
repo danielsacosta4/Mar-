@@ -367,7 +367,10 @@ a.detail-artist:hover { text-decoration: underline; }
 .sleeve-back .detail-actions .btn { color: var(--ink); }
 .sleeve-back .detail-actions .btn-primary { color: var(--bg); }
 .sleeve-back .detail-actions .btn:hover { color: var(--bg); }
-.sleeve-back .detail-actions .btn-ghost.on { color: var(--accent); }
+.sleeve-back .detail-actions .btn-ghost.on, .sleeve-back .detail-actions .btn-fav.on { color: var(--accent); }
+/* The "…" of an album or playlist: a button like its neighbours, always the last one. */
+.btn-more { padding: 0 11px; }
+.btn-more svg { width: 18px; height: 18px; }
 .sides { display: grid; gap: 30px; }
 @container (min-width: 720px) { .sides.two { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 36px; } }
 .side-head { display: flex; align-items: baseline; gap: 12px; padding-bottom: 6px; border-bottom: 3px solid var(--rule); }
@@ -392,10 +395,11 @@ a.detail-artist:hover { text-decoration: underline; }
 .profile-photo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center 25%; filter: grayscale(1) contrast(1.1); mix-blend-mode: multiply; }
 .profile[data-ink="light"] .profile-photo img { mix-blend-mode: normal; }
 .hero-play {
-  width: 48px; height: 48px; display: grid; place-items: center; flex: none;
+  display: inline-flex; align-items: center; gap: 8px; height: 48px; padding: 0 20px 0 16px; flex: none;
+  font: 700 12.5px var(--font); text-transform: uppercase; letter-spacing: .1em;
   background: rgb(var(--on-tint)); color: rgb(var(--tint));
 }
-.hero-play svg { width: 20px; height: 20px; margin-left: 3px; }
+.hero-play svg { width: 16px; height: 16px; }
 .hero-play:hover { background: var(--accent); color: #fff; }
 .hero-radio {
   display: inline-flex; align-items: center; gap: 8px; height: 48px; padding: 0 18px;
@@ -1038,6 +1042,8 @@ input[type="range"]:hover::-moz-range-thumb { opacity: 1; }
   .detail-actions .btn { flex: 1 1 auto; justify-content: center; }
   .detail-actions .btn-ghost { flex: none; font-size: 0; gap: 0; padding: 0 10px; }
   .detail-actions .btn-ghost svg { width: 22px; height: 22px; }
+  .detail-actions .btn-fav, .detail-actions .btn-more { flex: none; font-size: 0; gap: 0; padding: 0 12px; }
+  .detail-actions .btn-fav svg { width: 20px; height: 20px; }
   .detail-actions .btn-dl { flex: none; font-size: 0; gap: 0; padding: 0 12px; }
   .detail-actions .btn-dl svg { width: 20px; height: 20px; }
   .detail-actions .btn-dl .dl-ring { width: 18px; height: 18px; }
@@ -1234,4 +1240,25 @@ input[type="range"]:hover::-moz-range-thumb { opacity: 1; }
 
 @media (max-width: 760px) {
   .q-long { display: none; }   /* Up Next: "Save" fits beside the heading, "Save as Playlist" doesn't */
+}
+
+/* ---------- 1.8.3: one way back on phones, one "…" in Now Playing ---------- */
+.np-top-space { width: 36px; flex: none; }   /* where the second "…" was: keeps the tabs in the middle */
+.back-btn { display: none; }
+@media (max-width: 760px) {
+  /* A back arrow at the top left of every page that isn't one of the three tabs (UI.backButton). */
+  .back-btn {
+    display: grid; place-items: center; position: fixed; z-index: 3; left: 12px; top: max(10px, env(safe-area-inset-top));
+    width: 40px; height: 40px; background: var(--bg); color: var(--ink); border: 2px solid var(--rule); transition: opacity .15s;
+  }
+  .back-btn svg { width: 20px; height: 20px; }
+  .back-btn::after { content: ""; position: absolute; inset: -4px; }
+  .app.back-away .back-btn { opacity: 0; pointer-events: none; }
+  /* Pages that start with their title make room for it; pages with a colour header carry it on the header. */
+  .app.back-pad .main { padding-top: calc(max(10px, env(safe-area-inset-top)) + 54px); }
+  .page-head a.btn[href="#/collection"] { display: none; }   /* the arrow does this now */
+  /* The offline notice: the width of the screen, not a narrow box with its text in four lines. */
+  .offline-bar { left: 16px; right: 16px; transform: none; }
+  .offline-bar a { margin-left: auto; }
+  .offline-bar .ob-close { padding: 8px 4px 8px 12px; }
 }
