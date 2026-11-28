@@ -70,6 +70,7 @@ class H(SimpleHTTPRequestHandler):
             log.append('stream '+q['id']+' '+q.get('format','orig')+(' est' if q.get('estimateContentLength')=='true' else ''))
             if STATE.get('down'): s.close_connection=True; s.connection.shutdown(2); return   # network failure (test_round8)
             if STATE.get('navi'): return navi_stream(s,q)
+            if STATE.get('hires') and q.get('format')=='raw': return hires_stream(s,q)
             rng=s.headers.get('Range'); data=WAV
             if STATE.get('real'):
                 d=next((x['duration'] for x in songs if x['id']==q['id']),8)-int(q.get('timeOffset') or 0)
@@ -245,7 +246,11 @@ def mb(s,u):
         name=q['query'].split('"')[1]
         # Countries the way MusicBrainz gives them: most artists carry one; ar4 is a person filed under a city (the
         # country is found by walking up its areas); ar5 isn't on MusicBrainz at all; ar2 has a namesake elsewhere.
-        geo={"ar1":{"country":"PT"},"ar2":{"country":"NO"},"ar3":{"country":"PT"},"ar4":{"begin-area":{"id":"area-city","name":"Chicago","type":"City"}}}
+        # Towns (1.8.4): ar1 has one, ar3 only a region, ar2 only its country, ar4 a city (and no country: see above).
+        geo={"ar1":{"country":"PT","area":{"id":"area-pt","name":"Portugal","type":"Country"},"begin-area":{"id":"area-lx","name":"Lisboa","type":"City"}},
+             "ar2":{"country":"NO","area":{"id":"area-no","name":"Norway","type":"Country"},"begin-area":{"id":"area-no","name":"Norway","type":"Country"}},
+             "ar3":{"country":"PT","begin-area":{"id":"area-alg","name":"Algarve","type":"Subdivision"}},
+             "ar4":{"begin-area":{"id":"area-city","name":"Chicago","type":"City"}}}
         out=[{"id":"mb-"+a[0],"name":a[1],"score":100,**geo.get(a[0],{})} for a in artists if a[1]==name and a[0]!="ar5"]
         if name=="The Northern Lights": out.append({"id":"mb-other","name":"The Northern Lights","score":72,"country":"GB"})
         if not out: out=[{"id":"mb-wrong","name":name+" Tribute Band","score":100,"country":"DE"}]   # the top hit always scores 100
@@ -278,6 +283,7 @@ def do_GET(s):
     if u.path=='/__sent': return s.send_json(SENT)
     if u.path=='/__down': STATE['down']=u.query=='1'; return s.send_json(STATE)
     if u.path=='/__real': STATE['real']=u.query=='1'; return s.send_json(STATE)
+    if u.path=='/__hires': STATE['hires']=u.query=='1'; return s.send_json({**STATE,'kinds':HIRES})
     if u.path=='/__log': return s.send_json(log)
     if u.path=='/mbo/userinfo': return s.send_json({"sub":"modren12mb"})
     return _get(s)
@@ -303,6 +309,36 @@ def source(d):
                 '-filter_complex','amix=inputs=2:duration=first','-ac','2','-ar','44100','-c:a','flac',f],check=True)
         SRC[d]=f
     return SRC[d]
+# /__hires?1 (test_round11): original files are real FLACs of a known kind, so the hi-res check can be checked.
+# By album: al1 a true 24/96 recording, al3 CD sound stretched to 96 kHz, al7 16-bit sound padded to 24-bit,
+# al9 a 96 kHz recording stretched to 192 kHz, al11 true 24/96 again.
+HIRES={'al1':'native','al3':'upsampled','al7':'padded','al9':'upsampled','al11':'native'}
+def hires_file(kind,aid):
+    d=tempfile.gettempdir(); f=os.path.join(d,f'mare-hires-{aid}.flac')
+    if not os.path.exists(f):
+        ff=['ffmpeg','-v','0','-y']; fl=['-c:a','flac','-sample_fmt','s32','-bits_per_raw_sample','24']
+        noise=lambda rate: ['-f','lavfi','-i',f'anoisesrc=d=14:c=pink:r={rate}:a=0.2']
+        if kind=='native': subprocess.run(ff+noise(96000)+fl+[f],check=True)
+        else:
+            w=os.path.join(d,f'mare-hires-{aid}.wav')
+            if aid=='al9':      # 96 kHz -> 192 kHz
+                subprocess.run(ff+noise(96000)+['-c:a','pcm_s24le',w],check=True)
+                subprocess.run(ff+['-i',w,'-af','aresample=192000:filter_size=512:cutoff=0.98']+fl+[f],check=True)
+            elif kind=='upsampled':   # CD -> 96 kHz
+                subprocess.run(ff+noise(44100)+['-c:a','pcm_s16le',w],check=True)
+                subprocess.run(ff+['-i',w,'-af','aresample=96000:filter_size=512:cutoff=0.98,aresample=osf=s32']+fl+[f],check=True)
+            else:               # 16-bit at 96 kHz, saved as 24-bit
+                subprocess.run(ff+noise(96000)+['-c:a','pcm_s16le',w],check=True)
+                subprocess.run(ff+['-i',w]+fl+[f],check=True)
+    return f
+def hires_stream(s,q):
+    aid=next((x['albumId'] for x in songs if x['id']==q['id']),'')
+    data=open(hires_file(HIRES.get(aid,'native'),aid),'rb').read(); rng=s.headers.get('Range')
+    if rng:
+        a,b=rng.replace('bytes=','').split('-'); a=int(a or 0); b=min(int(b),len(data)-1) if b else len(data)-1
+        s.send_response(206); s.send_header('Content-Range',f'bytes {a}-{b}/{len(data)}'); data=data[a:b+1]
+    else: s.send_response(200)
+    s.send_header('Accept-Ranges','bytes'); s.send_header('Content-Type','audio/flac'); s.send_header('Content-Length',str(len(data))); s.end_headers(); return s.wfile.write(data)
 def navi_stream(s,q):
     d=next((x['duration'] for x in songs if x['id']==q['id']),8); src=source(d); fmt=q.get('format')
     if not fmt or fmt=='raw':

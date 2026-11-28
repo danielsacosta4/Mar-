@@ -7,9 +7,12 @@
 
 const Geo = {
   d: null,
-  // { v, a: { artistId: 'PT' | '-' (looked up, none found) }, areas: { musicBrainzAreaId: 'US' | '-' } }
+  // { v, a: { artistId: 'PT' | '-' (looked up, none found) }, areas: { musicBrainzAreaId: 'US' | '-' },
+  //   p: { artistId: ['c' | 'r', name, areaId] | 0 } } — p (1.8.4) is the place finer than the country: a city or town
+  //   ('c') or only a region ('r'); 0 when MusicBrainz knows none.
   data() {
     if (!this.d) { const x = store.get('geo'); this.d = x && x.v === 1 ? x : { v: 1, a: {}, areas: {} }; }
+    if (!this.d.p) this.d.p = {};
     return this.d;
   },
   save() { store.set('geo', this.data()); },
@@ -52,8 +55,19 @@ const Geo = {
     trail.forEach((t) => { D.areas[t] = code || '-'; });
     return code;
   },
-  async lookup(artist) {
-    if (/^(various artists|\[?unknown artist\]?)$/i.test(artist.name || '')) return '-';
+  // Where the artist formed (a band) or was born (a person), finer than the country. A search answer names the kind
+  // of place; an answer by MusicBrainz id doesn't, and is counted as a town (most are).
+  placeOf(a) {
+    const home = a?.area?.id;
+    for (const ar of [a?.['begin-area'] || a?.begin_area, a?.area]) {
+      if (!ar?.id || ar.type === 'Country' || ar['iso-3166-1-codes']?.length || (ar === a.area ? !ar.type : ar.id === home)) continue;
+      return [ar.type === 'Subdivision' ? 'r' : 'c', ar.name || '', ar.id];
+    }
+    return 0;
+  },
+  // The artist as MusicBrainz knows them, or null.
+  async find(artist) {
+    if (/^(various artists|\[?unknown artist\]?)$/i.test(artist.name || '')) return null;
     let a = null;
     if (artist.musicBrainzId) a = await MB.get('artist/' + artist.musicBrainzId).catch((e) => { if (e.code === 404 || e.code === 400) return null; throw e; });
     else {
@@ -67,7 +81,12 @@ const Geo = {
         if (a) break;
       }
     }
+    return a;
+  },
+  async lookup(artist) {
+    const a = await this.find(artist);
     if (!a) return '-';
+    this.data().p[artist.id] = this.placeOf(a);
     // A person's "country" is often empty while the birthplace or home town is known.
     return a.country || await this.area(a['begin-area'] || a.begin_area) || await this.area(a.area) || '-';
   },
@@ -82,10 +101,14 @@ const Geo = {
       const list = await this.artists(), D = this.data();
       let n = 0;
       for (const ar of list) {
-        if (D.a[ar.id]) continue;
+        const have = D.a[ar.id];
+        if (have && (have === '-' || D.p[ar.id] !== undefined)) continue;
         let c;
         // MusicBrainz busy or unreachable: stop here and carry on in a minute (nothing is recorded for this artist).
-        try { c = await this.lookup(ar); } catch (e) {
+        try {
+          // Placed in a country before 1.8.4: only the town is asked for now.
+          if (have) { const a = await this.find(ar); D.p[ar.id] = a ? this.placeOf(a) : 0; c = have; } else c = await this.lookup(ar);
+        } catch (e) {
           if (!e.code || e.code === 503 || e.code === 429) { clearTimeout(this.again); this.again = setTimeout(() => this.build(tick), 60000); break; }
           c = '-';
         }
@@ -117,7 +140,17 @@ const Geo = {
       else { if (!by.has(c)) by.set(c, []); by.get(c).push(ar); }
     }
     const countries = [...by].map(([code, artists]) => ({ code, artists })).sort((x, y) => y.artists.length - x.artists.length || x.code.localeCompare(y.code));
-    return { countries, unknown, pending, total: list.length };
+    // How many of the placed artists also have a town (or only a region) on MusicBrainz.
+    const places = { cities: 0, regions: 0, asked: 0, pending: 0 };
+    for (const ar of list) {
+      const c = D.a[ar.id];
+      if (!c || c === '-') continue;
+      const pl = D.p[ar.id];
+      if (pl === undefined) { places.pending++; continue; }
+      places.asked++;
+      if (pl) places[pl[0] === 'r' ? 'regions' : 'cities']++;
+    }
+    return { countries, unknown, pending, total: list.length, places };
   },
 };
 
@@ -149,7 +182,7 @@ const Atlas = {
     if (!box) return;
     this.box = box;
     box.innerHTML = `<section class="section atlas"><div class="section-head"><h2>Where Your Artists Are From</h2></div>
-      <p class="section-note atlas-note">Loading the map…</p>
+      <p class="section-note atlas-note">Loading the map…</p><p class="section-note atlas-places" hidden></p>
       <div class="atlas-grid"><div class="atlas-globe"></div><div class="atlas-side"></div></div></section>`;
     try { this.lib = await this.loadLib(); } catch { if (box.isConnected) $('.atlas-note', box).textContent = 'The map couldn\'t be loaded. Check the connection and open Collection again.'; return; }
     if (!box.isConnected) return;
@@ -157,7 +190,7 @@ const Atlas = {
     if (!this.sum || !box.isConnected) return;
     this.globe($('.atlas-globe', box));
     this.refresh();
-    if (this.sum.pending) Geo.build(() => this.onProgress());
+    if (this.sum.pending || this.sum.places.pending) Geo.build(() => this.onProgress());
   },
   // New answers arrived: refresh the numbers now and then (not on every single artist).
   async onProgress() {
@@ -184,6 +217,12 @@ const Atlas = {
     $('.atlas-note', box).textContent = s.pending
       ? `Finding out where your artists are from: ${found.toLocaleString()} of ${s.total.toLocaleString()} so far. MusicBrainz answers about one a second; this happens once and carries on whenever Maré is open.`
       : `${s.countries.length} ${s.countries.length === 1 ? 'country' : 'countries'} · ${plural(s.total - s.unknown.length, 'artist')} placed${s.unknown.length ? ` · ${s.unknown.length} not found on MusicBrainz` : ''}. Drag the globe, or pick a country.`;
+    // A measurement for now (1.8.4): would a map of towns have enough on it?
+    const pl = s.places, line = $('.atlas-places', box);
+    if (line) {
+      line.hidden = !pl.asked;
+      line.textContent = `MusicBrainz knows the town for ${pl.cities.toLocaleString()} of ${pl.asked.toLocaleString()} placed artists${pl.regions ? `, and only the region for ${pl.regions.toLocaleString()} more` : ''}${pl.pending ? `. Still asking about ${pl.pending.toLocaleString()}.` : '.'}`;
+    }
     if (!this.sel && s.countries.length) this.sel = s.countries[0].code;
     this.side();
   },

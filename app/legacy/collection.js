@@ -562,9 +562,28 @@ actions["scan-library"] = (el) => Scan.run(el);
     await orig(main, ...rest);
     const box = $(".settings", main);
     if (!box || $('[data-act="scan-library"]', box)) return;
-    box.insertAdjacentHTML("afterbegin", '<h2 class="set-group">Library</h2>\n      <div class="set-row"><div><h3>Scan library</h3><p>Look for new music in your folders. Added albums appear in Mar\xE9 as soon as Navidrome finishes.</p></div>\n        <div class="set-actions"><button class="btn" data-act="scan-library">Scan library</button></div></div>');
+    box.insertAdjacentHTML("afterbegin", '<h2 class="set-group">Library</h2>\n      <div class="set-row"><div><h3>Scan library</h3><p>Look for new music in your folders. Added albums appear in Mar\xE9 as soon as Navidrome finishes.</p></div>\n        <div class="set-actions"><button class="btn" data-act="scan-library">Scan library</button></div></div>\n      '.concat(Player.volLocked ? "" : '<div class="set-row"><div><h3>Check a sample of hi-res albums</h3><p>Takes 20 albums labelled hi-res, reads the start of one song from each, and measures two things a label can\'t show: whether the sound really goes above CD range, and whether a 24-bit file uses its extra bits. A measuring tool for now. It downloads about 15 MB per album and takes a minute or two.</p></div>\n        <div class="set-actions"><button class="btn" data-act="hi-check">Check 20 albums</button></div></div>\n      <div class="hc" id="hicheck" hidden></div>'));
   };
 }
+actions["hi-check"] = async () => {
+  const box = $("#hicheck");
+  if (!box) return;
+  if (!window.HiCheck) {
+    try {
+      await new Promise((res, rej) => {
+        const s = document.createElement("script");
+        s.src = "hicheck.js?v=".concat(window.MARE_VERSION);
+        s.onload = res;
+        s.onerror = rej;
+        document.head.appendChild(s);
+      });
+    } catch {
+      toast("Couldn't load the checking tool. Check the connection and try again.");
+      return;
+    }
+  }
+  window.HiCheck.run(box);
+};
 window.Scan = Scan;
 const RateSync = {
   mb() {

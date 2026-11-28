@@ -1,12 +1,15 @@
 "use strict";
 const Geo = {
   d: null,
-  // { v, a: { artistId: 'PT' | '-' (looked up, none found) }, areas: { musicBrainzAreaId: 'US' | '-' } }
+  // { v, a: { artistId: 'PT' | '-' (looked up, none found) }, areas: { musicBrainzAreaId: 'US' | '-' },
+  //   p: { artistId: ['c' | 'r', name, areaId] | 0 } } — p (1.8.4) is the place finer than the country: a city or town
+  //   ('c') or only a region ('r'); 0 when MusicBrainz knows none.
   data() {
     if (!this.d) {
       const x = store.get("geo");
       this.d = x && x.v === 1 ? x : { v: 1, a: {}, areas: {} };
     }
+    if (!this.d.p) this.d.p = {};
     return this.d;
   },
   save() {
@@ -60,8 +63,20 @@ const Geo = {
     });
     return code;
   },
-  async lookup(artist) {
-    if (/^(various artists|\[?unknown artist\]?)$/i.test(artist.name || "")) return "-";
+  // Where the artist formed (a band) or was born (a person), finer than the country. A search answer names the kind
+  // of place; an answer by MusicBrainz id doesn't, and is counted as a town (most are).
+  placeOf(a) {
+    var _a, _b;
+    const home = (_a = a == null ? void 0 : a.area) == null ? void 0 : _a.id;
+    for (const ar of [(a == null ? void 0 : a["begin-area"]) || (a == null ? void 0 : a.begin_area), a == null ? void 0 : a.area]) {
+      if (!(ar == null ? void 0 : ar.id) || ar.type === "Country" || ((_b = ar["iso-3166-1-codes"]) == null ? void 0 : _b.length) || (ar === a.area ? !ar.type : ar.id === home)) continue;
+      return [ar.type === "Subdivision" ? "r" : "c", ar.name || "", ar.id];
+    }
+    return 0;
+  },
+  // The artist as MusicBrainz knows them, or null.
+  async find(artist) {
+    if (/^(various artists|\[?unknown artist\]?)$/i.test(artist.name || "")) return null;
     let a = null;
     if (artist.musicBrainzId) a = await MB.get("artist/" + artist.musicBrainzId).catch((e) => {
       if (e.code === 404 || e.code === 400) return null;
@@ -76,7 +91,12 @@ const Geo = {
         if (a) break;
       }
     }
+    return a;
+  },
+  async lookup(artist) {
+    const a = await this.find(artist);
     if (!a) return "-";
+    this.data().p[artist.id] = this.placeOf(a);
     return a.country || await this.area(a["begin-area"] || a.begin_area) || await this.area(a.area) || "-";
   },
   // Look up every artist that has no answer yet, one after the other (so a discography request made meanwhile
@@ -89,10 +109,15 @@ const Geo = {
       const list = await this.artists(), D = this.data();
       let n = 0;
       for (const ar of list) {
-        if (D.a[ar.id]) continue;
+        const have = D.a[ar.id];
+        if (have && (have === "-" || D.p[ar.id] !== void 0)) continue;
         let c;
         try {
-          c = await this.lookup(ar);
+          if (have) {
+            const a = await this.find(ar);
+            D.p[ar.id] = a ? this.placeOf(a) : 0;
+            c = have;
+          } else c = await this.lookup(ar);
         } catch (e) {
           if (!e.code || e.code === 503 || e.code === 429) {
             clearTimeout(this.again);
@@ -138,7 +163,19 @@ const Geo = {
       }
     }
     const countries = [...by].map(([code, artists]) => ({ code, artists })).sort((x, y) => y.artists.length - x.artists.length || x.code.localeCompare(y.code));
-    return { countries, unknown, pending, total: list.length };
+    const places = { cities: 0, regions: 0, asked: 0, pending: 0 };
+    for (const ar of list) {
+      const c = D.a[ar.id];
+      if (!c || c === "-") continue;
+      const pl = D.p[ar.id];
+      if (pl === void 0) {
+        places.pending++;
+        continue;
+      }
+      places.asked++;
+      if (pl) places[pl[0] === "r" ? "regions" : "cities"]++;
+    }
+    return { countries, unknown, pending, total: list.length, places };
   }
 };
 const Atlas = {
@@ -182,7 +219,7 @@ const Atlas = {
   async mount(box) {
     if (!box) return;
     this.box = box;
-    box.innerHTML = '<section class="section atlas"><div class="section-head"><h2>Where Your Artists Are From</h2></div>\n      <p class="section-note atlas-note">Loading the map\u2026</p>\n      <div class="atlas-grid"><div class="atlas-globe"></div><div class="atlas-side"></div></div></section>';
+    box.innerHTML = '<section class="section atlas"><div class="section-head"><h2>Where Your Artists Are From</h2></div>\n      <p class="section-note atlas-note">Loading the map\u2026</p><p class="section-note atlas-places" hidden></p>\n      <div class="atlas-grid"><div class="atlas-globe"></div><div class="atlas-side"></div></div></section>';
     try {
       this.lib = await this.loadLib();
     } catch {
@@ -194,7 +231,7 @@ const Atlas = {
     if (!this.sum || !box.isConnected) return;
     this.globe($(".atlas-globe", box));
     this.refresh();
-    if (this.sum.pending) Geo.build(() => this.onProgress());
+    if (this.sum.pending || this.sum.places.pending) Geo.build(() => this.onProgress());
   },
   // New answers arrived: refresh the numbers now and then (not on every single artist).
   async onProgress() {
@@ -222,6 +259,11 @@ const Atlas = {
     });
     const found = s.total - s.pending;
     $(".atlas-note", box).textContent = s.pending ? "Finding out where your artists are from: ".concat(found.toLocaleString(), " of ").concat(s.total.toLocaleString(), " so far. MusicBrainz answers about one a second; this happens once and carries on whenever Mar\xE9 is open.") : "".concat(s.countries.length, " ").concat(s.countries.length === 1 ? "country" : "countries", " \xB7 ").concat(plural(s.total - s.unknown.length, "artist"), " placed").concat(s.unknown.length ? " \xB7 ".concat(s.unknown.length, " not found on MusicBrainz") : "", ". Drag the globe, or pick a country.");
+    const pl = s.places, line = $(".atlas-places", box);
+    if (line) {
+      line.hidden = !pl.asked;
+      line.textContent = "MusicBrainz knows the town for ".concat(pl.cities.toLocaleString(), " of ").concat(pl.asked.toLocaleString(), " placed artists").concat(pl.regions ? ", and only the region for ".concat(pl.regions.toLocaleString(), " more") : "").concat(pl.pending ? ". Still asking about ".concat(pl.pending.toLocaleString(), ".") : ".");
+    }
     if (!this.sel && s.countries.length) this.sel = s.countries[0].code;
     this.side();
   },
