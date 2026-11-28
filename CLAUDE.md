@@ -461,6 +461,9 @@ uses `LANG=C.UTF-8` to avoid locale noise.
   the town for N of M placed artists, and only the region for K more". Mock: `/__hires?1` serves real FLACs by album
   (al1 native, al3 CD→96, al7 padded, al9 96→192, al11 native); MusicBrainz answers carry areas.
   What the two numbers decide: Audio analysis (server side) and the globe's zoom with artists by town.
+  **The self-updater is proven on the real server:** 1.8.3 was merged at 17:05 UTC on 28 Nov 2026 and the owner's
+  container installed it by itself at its 17:46 check (`update.json`: installed 1.8.3, state "updated", "Updated from
+  1.8.2"); Navidrome kept answering through Maré.
 
 ## Roadmap (agreed with the owner; each needs a plan + go-ahead first)
 
