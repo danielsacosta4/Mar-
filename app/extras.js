@@ -98,8 +98,30 @@ const Quality = {
   },
   // Quick picker; changing it applies to the song that's playing straight away.
   pick(anchor) {
-    const cur = Prefs.get('quality');
     const s = Player.current();
+    // iPhone / iPad with songs saved ahead: what you hear is the saved copy, so that is the quality to choose here
+    // (the streaming quality below would only change the first seconds of the first song).
+    if (Player.volLocked && Offline.supported && Ahead.on()) {
+      const now = Prefs.get('phoneQuality') || 'opus128';
+      const list = [['opus128', CAN_OPUS ? 'Opus 128 kbps' : 'MP3 320 kbps'], ...(CAN_OPUS ? [['high', 'MP3 320 kbps']] : []),
+        ['original', `Original, streamed live${s ? ` (${fileLabel(s)})` : ''}`]];
+      const ticked = list.some(([k]) => k === now) ? now : 'opus128';
+      Menu.open(anchor, list.map(([k, l]) => ({ key: 'pq-' + k, label: `${k === ticked ? '✓ ' : '\u2003 '}${l}`, run: async () => {
+        if (k === now) return;
+        Prefs.set('phoneQuality', k);
+        // The copies were made at the old quality: drop them first, then let the playing song carry on live at the
+        // same point (a copy pulled away under it would be heard as a stumble).
+        const a = Player.audio, cur = Player.current(), onCopy = !!cur && a._local && !Offline.hasSong(cur.id);
+        await Ahead.clear(); store.set('aheadTag', Ahead.tag());
+        if (k === 'original') Player.setQuality('original');   // "live" means the files as they are
+        else if (onCopy) Player.setQuality(Prefs.get('quality'));
+        Ahead.run();
+        toast(k === 'original' ? 'Streaming the original files live' : `Songs are saved on the phone as ${specName(qualitySpec(k))} kbps`);
+        Quality.sync(Player.current());
+      } })));
+      return;
+    }
+    const cur = Prefs.get('quality');
     const opts = [['original', `Original${s ? ` (${fileLabel(s)})` : ''}`], ['opus128', 'Opus 128 kbps'], ['opus96', 'Opus 96 kbps'],
       ['high', 'MP3 320 kbps'], ['normal', 'MP3 192 kbps'], ['low', 'MP3 128 kbps']];
     Menu.open(anchor, opts.map(([k, l]) => ({ key: 'q-' + k, label: `${k === cur ? '✓ ' : '\u2003 '}${l}`, run: () => {
@@ -564,7 +586,7 @@ songMenu = function (anchor, s) {
     if (!box || !Player.queue.length) return;
     const h = $('h3', box);
     if (h) h.outerHTML = `<div class="q-head"><h3>Up Next</h3><div>
-        <button class="q-btn" data-act="q-save">${icon('plus')}Save as Playlist</button>
+        <button class="q-btn" data-act="q-save">${icon('plus')}Save<span class="q-long">&nbsp;as Playlist</span></button>
         ${Player.index < Player.queue.length - 1 ? `<button class="q-btn" data-act="q-clear">Clear</button>` : ''}</div></div>`;
     $$('.q-item', box).forEach((row) => {
       const i = +row.dataset.i;
@@ -599,12 +621,13 @@ songMenu = function (anchor, s) {
     const locked = Player.volLocked;
     box.insertAdjacentHTML('afterbegin', `
       <h2 class="set-group">Playback</h2>
-      <div class="set-row"><div><h3>Crossfade</h3><p>${locked ? 'Not available in this browser: iPhone and iPad don\'t let web apps change volume. Songs still play gaplessly.' : 'Blend the end of one song into the next. Songs always play without gaps.'}</p></div>
-        <div class="set-actions set-range"><input type="range" min="0" max="12" step="1" value="${cf}" data-pref="crossfade" ${locked ? 'disabled' : ''} aria-label="Crossfade seconds"><output>${cf ? cf + ' s' : 'Off'}</output></div></div>
+      ${locked ? `<div class="set-row"><div><h3>Crossfade and volume levelling</h3><p>Not on iPhone and iPad: web apps can't change the volume there. Songs always play without gaps, and the side buttons set the volume.</p></div></div>` : `
+      <div class="set-row"><div><h3>Crossfade</h3><p>Blend the end of one song into the next. Songs always play without gaps.</p></div>
+        <div class="set-actions set-range"><input type="range" min="0" max="12" step="1" value="${cf}" data-pref="crossfade" aria-label="Crossfade seconds"><output>${cf ? cf + ' s' : 'Off'}</output></div></div>
       <div class="set-row"><div><h3>Keep albums gapless</h3><p>Don't crossfade between songs from the same album, so live albums and mixes flow as intended.</p></div>
-        <label class="switch"><input type="checkbox" data-pref="smartFade" ${Prefs.get('smartFade') ? 'checked' : ''} ${locked ? 'disabled' : ''}><span></span></label></div>
-      <div class="set-row"><div><h3>Volume levelling</h3><p>${locked ? 'Not available in this browser (iPhone and iPad).' : 'Evens out loud and quiet songs using ReplayGain tags. Automatic uses album levels when you play an album and song levels otherwise.'}</p></div>
-        <div class="set-actions"><select class="select" data-pref="rg" ${locked ? 'disabled' : ''}>${[['auto', 'Automatic'], ['track', 'Song'], ['album', 'Album'], ['off', 'Off']].map(([v, l]) => `<option value="${v}"${Prefs.get('rg') === v ? ' selected' : ''}>${l}</option>`).join('')}</select></div></div>
+        <label class="switch"><input type="checkbox" data-pref="smartFade" ${Prefs.get('smartFade') ? 'checked' : ''}><span></span></label></div>
+      <div class="set-row"><div><h3>Volume levelling</h3><p>Evens out loud and quiet songs using ReplayGain tags. Automatic uses album levels when you play an album and song levels otherwise.</p></div>
+        <div class="set-actions"><select class="select" data-pref="rg">${[['auto', 'Automatic'], ['track', 'Song'], ['album', 'Album'], ['off', 'Off']].map(([v, l]) => `<option value="${v}"${Prefs.get('rg') === v ? ' selected' : ''}>${l}</option>`).join('')}</select></div></div>`}
       <div class="set-row"><div><h3>Streaming quality</h3><p>Original plays your files as they are (lossless and hi-res stay intact). The others are converted by Navidrome to save data on mobile: Opus sounds as good as MP3 at about half the size and keeps albums gapless${CAN_OPUS ? '' : ' (this device can\'t play Opus, so it gets MP3 instead)'}.</p></div>
         <div class="set-actions"><select class="select" data-pref="quality">${[['original', 'Original'], ['opus128', 'Opus 128'], ['opus96', 'Opus 96'], ['high', 'MP3 320'], ['normal', 'MP3 192'], ['low', 'MP3 128']].map(([v, l]) => `<option value="${v}"${Prefs.get('quality') === v ? ' selected' : ''}>${l}</option>`).join('')}</select></div></div>
       <div class="set-row"><div><h3>Download quality</h3><p>Original keeps lossless files (large: an album can be 1–2 GB in hi-res). Opus 128 is about half the size of MP3 320 at the same sound quality.</p></div>
@@ -637,7 +660,7 @@ songMenu = function (anchor, s) {
     });
     const rng = $('[data-pref="crossfade"]', box);
     const paint = () => rng.style.setProperty('--p', (rng.value / 12) * 100 + '%');
-    paint(); rng.addEventListener('input', paint);
+    if (rng) { paint(); rng.addEventListener('input', paint); }
     box.addEventListener('input', (e) => {
       const el = e.target.closest('[data-pref]');
       if (!el) return;
@@ -826,11 +849,12 @@ const Ahead = {
       for (const s of want) {
         if (d.songs[s.id] || this.has(s.id)) continue;
         if (!this.on() || Offline.offline) break;
-        const q = this.spec();
+        const q = this.spec(), tag = this.tag();
         const r = await fetch(API.stream(s.id, q ? { format: q.format, maxBitRate: q.kbps } : null));
         if (!r.ok) continue;
         const blob = await r.blob();
         if (!blob.size) continue;
+        if (tag !== this.tag()) break;   // the quality was changed while this one was on its way: not that copy
         await cache.put(this.key(s.id), new Response(blob, { headers: { 'Content-Type': r.headers.get('Content-Type') || 'audio/mpeg', 'Content-Length': blob.size } }));
         const l = this.list().filter((k) => k !== this.key(s.id)); l.push(this.key(s.id));
         // Forget the oldest, but never the playing song or one of the songs coming up.

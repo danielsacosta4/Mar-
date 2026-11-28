@@ -1,5 +1,5 @@
 "use strict";
-window.MARE_VERSION = "1.8.1";
+window.MARE_VERSION = "1.8.2";
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 const esc = (s) => String(s != null ? s : "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -700,16 +700,31 @@ const Player = {
     } catch {
       this.volLocked = true;
     }
+    const root = document.documentElement;
+    root.classList.toggle("vol-locked", this.volLocked);
+    root.classList.toggle("touch", this.volLocked || !!(window.matchMedia && matchMedia("(pointer: coarse)").matches));
     try {
       if (navigator.audioSession) navigator.audioSession.type = "playback";
     } catch {
     }
     document.addEventListener("visibilitychange", () => {
-      if (document.hidden || !this.volLocked || this.audio.paused) return;
+      var _a2;
+      if (document.hidden || !this.volLocked) return;
+      if (this.resumeOnShow || this.interrupted && ((_a2 = navigator.audioSession) == null ? void 0 : _a2.state) !== "interrupted") {
+        this.afterInterruption(true);
+        return;
+      }
+      if (this.audio.paused) return;
       if (this.lockedNudge) {
         this.lastReload = 0;
         this.refresh("back on screen after headphones, reconnecting");
       } else if (this.sessionOff()) this.refresh("sound was off after unlocking, reconnecting");
+    });
+    const session = navigator.audioSession;
+    if (session && session.addEventListener && this.volLocked) session.addEventListener("statechange", () => {
+      if (session.state === "interrupted") {
+        if (!this.audio.paused || this.sysPaused && Date.now() - (this.sysAt || 0) < 3e3) this.interrupt();
+      } else if (this.interrupted) this.afterInterruption();
     });
     this.els.forEach((el) => {
       el.preload = "auto";
@@ -725,11 +740,14 @@ const Player = {
         }
       }));
       el.addEventListener("pause", mine(() => {
+        var _a2;
         this.sync();
         this.persist();
         if (this.volLocked && !el.ended && Date.now() - (this.ownPause || 0) > 800) {
           this.sysPaused = true;
+          this.sysAt = Date.now();
           this.note("paused by headphones or system");
+          if (((_a2 = navigator.audioSession) == null ? void 0 : _a2.state) === "interrupted") this.interrupt();
         }
       }));
       el.addEventListener("playing", mine(() => this.onPlaying()));
@@ -1011,6 +1029,8 @@ const Player = {
   },
   toggle() {
     if (!this.current()) return;
+    this.interrupted = 0;
+    this.resumeOnShow = false;
     if (this.audio.paused) {
       this.sysPaused = false;
       this.audio.play().catch(() => {
@@ -1020,6 +1040,37 @@ const Player = {
       this.stopFade();
       this.audio.pause();
     }
+  },
+  // iPhone: the sound was taken by a call, Siri or an alarm while a song was playing.
+  interrupt() {
+    if (this.interrupted) return;
+    this.interrupted = Date.now();
+    this.resumeOnShow = false;
+    this.note("interrupted by a call or another app (".concat(document.hidden ? "locked" : "open", ")"));
+  },
+  // ...and it's over: carry on where the song stopped. Not when it was long ago (music starting by itself an hour
+  // later is a surprise, not a favour), and not when iOS has already started it again.
+  afterInterruption(shown) {
+    const since = this.interrupted ? Date.now() - this.interrupted : 0;
+    this.interrupted = 0;
+    this.resumeOnShow = false;
+    if (!this.current() || !this.audio.paused) return;
+    if (since > 15 * MIN) {
+      this.note("the interruption ended after more than 15 min: staying paused");
+      return;
+    }
+    this.sysPaused = false;
+    this.lastReload = 0;
+    this.refresh(shown ? "resumed after a call, back on screen" : "resumed after a call");
+    clearTimeout(this._callCheck);
+    this._callCheck = setTimeout(() => {
+      if (!this.audio.paused || !this.current()) return;
+      this.note("couldn't start by itself after the call (".concat(document.hidden ? "locked" : "open", ")"));
+      if (document.hidden) {
+        this.resumeOnShow = true;
+        this.sysPaused = true;
+      }
+    }, 2500);
   },
   // Reload the playing song at the same point and keep playing (reconnects iOS audio after a headphone resume).
   refresh(why, tries = 0) {
@@ -1322,6 +1373,8 @@ const Player = {
     const h = {
       play: () => {
         if (this.volLocked) this.note("lock screen / headphones: play (".concat(document.hidden ? "locked" : "open", ")"));
+        this.interrupted = 0;
+        this.resumeOnShow = false;
         if (this.sysPaused && this.volLocked) {
           this.sysPaused = false;
           this.refresh("resumed after headphones");
@@ -1335,6 +1388,7 @@ const Player = {
         this.audio.pause();
         if (this.volLocked) {
           this.sysPaused = true;
+          this.sysAt = Date.now();
           this.note("paused from lock screen or headphones (".concat(document.hidden ? "locked" : "open", ")"));
         }
       },
@@ -1895,8 +1949,7 @@ const UI = {
     const main = $("#main");
     $$("[data-nav]").forEach((a) => {
       const n = a.dataset.nav;
-      const libNames = ["albums", "artists", "songs", "playlists", "playlist", "favorites", "library", "album", "artist"];
-      const active = n === r.name || n === "library" && libNames.includes(r.name) && a.closest(".tabbar") || n === "playlists" && r.name === "playlist" || n === "albums" && r.name === "album" && !a.closest(".tabbar") || n === "artists" && r.name === "artist" && !a.closest(".tabbar");
+      const active = n === r.name || n === "library" && !["home", "search"].includes(r.name) && a.closest(".tabbar") || n === "playlists" && r.name === "playlist" || n === "albums" && r.name === "album" && !a.closest(".tabbar") || n === "artists" && r.name === "artist" && !a.closest(".tabbar");
       a.classList.toggle("active", !!active);
     });
     main.scrollTop = 0;

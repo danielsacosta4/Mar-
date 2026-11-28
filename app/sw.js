@@ -1,5 +1,5 @@
 /* Maré service worker: keeps the app usable offline and plays downloaded songs. */
-const VERSION = '1.8.1';
+const VERSION = '1.8.2';
 const SHELL = 'mare-shell-' + VERSION;
 const AUDIO = 'mare-audio';
 const ART = 'mare-art';
